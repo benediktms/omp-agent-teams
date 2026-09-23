@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
+import { resolveTeammateCli, sessionResumeArgs } from "../../extensions/teams/teammate-rpc.js";
 
 export function sleep(ms: number): Promise<void> {
 	return new Promise((r) => setTimeout(r, ms));
@@ -72,11 +73,11 @@ export function spawnTeamsWorkerRpc(opts: {
 	const out = fs.openSync(logPath, "a");
 	const err = fs.openSync(logPath, "a");
 
+	const cli = resolveTeammateCli();
 	const args = [
 		"--mode",
 		"rpc",
-		"--session",
-		sessionFile,
+		...sessionResumeArgs(cli, sessionFile),
 		"--session-dir",
 		sessionsDir,
 		"--no-extensions",
@@ -86,7 +87,7 @@ export function spawnTeamsWorkerRpc(opts: {
 		systemAppend,
 	];
 
-	return spawn("pi", args, {
+	return spawn(cli.command, args, {
 		cwd,
 		env: {
 			...process.env,

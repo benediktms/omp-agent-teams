@@ -19,6 +19,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { sleep, terminateAll } from "./lib/pi-workers.js";
+import { resolveTeammateCli } from "../extensions/teams/teammate-rpc.js";
 
 interface MemberSnapshot {
 	name: string;
@@ -197,7 +198,7 @@ const leaderArgs = [
 	entryPath,
 ];
 
-const leader = spawn("pi", leaderArgs, {
+const leader = spawn(resolveTeammateCli().command, leaderArgs, {
 	cwd: repoRoot,
 	env: leaderEnv,
 	stdio: ["pipe", "pipe", "pipe"],

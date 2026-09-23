@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import * as path from "node:path";
 
 export type TeammateStatus = "starting" | "idle" | "streaming" | "stopped" | "error";
 
@@ -23,6 +24,24 @@ type RpcResponse = {
 	data?: unknown;
 	error?: string;
 };
+
+export type TeammateCli = {
+	command: string;
+	dialect: "omp" | "pi";
+};
+
+export function resolveTeammateCli(env: NodeJS.ProcessEnv = process.env): TeammateCli {
+	const command = env.PI_TEAMS_CLI?.trim() || "omp";
+	const configuredDialect = env.PI_TEAMS_CLI_DIALECT?.trim();
+	if (configuredDialect === "omp" || configuredDialect === "pi") {
+		return { command, dialect: configuredDialect };
+	}
+	return { command, dialect: path.basename(command) === "omp" ? "omp" : "pi" };
+}
+
+export function sessionResumeArgs(cli: TeammateCli, sessionFile: string): string[] {
+	return [cli.dialect === "omp" ? "--resume" : "--session", sessionFile];
+}
 
 function isRecord(v: unknown): v is Record<string, unknown> {
 	return typeof v === "object" && v !== null;
@@ -93,7 +112,10 @@ export class TeammateRpc {
 	lastEventAt: number = Date.now();
 
 	private proc: ReturnType<typeof spawn> | null = null;
-	private pending = new Map<string, { resolve: (v: RpcResponse) => void; reject: (e: Error) => void }>();
+	private pending = new Map<
+		string,
+		{ resolve: (v: RpcResponse) => void; reject: (e: Error) => void; timeout: NodeJS.Timeout }
+	>();
 	private nextId = 0;
 	private buffer = "";
 	private stderr = "";
@@ -125,29 +147,28 @@ export class TeammateRpc {
 		return this.stderr;
 	}
 
-	async start(opts: { cwd: string; env: Record<string, string>; args: string[] }): Promise<void> {
+	async start(opts: {
+		command: string;
+		commandArgs?: string[];
+		cwd: string;
+		env: Record<string, string>;
+		args: string[];
+		startupTimeoutMs?: number;
+	}): Promise<void> {
 		if (this.proc) throw new Error("Teammate already started");
 
-		this.proc = spawn("pi", ["--mode", "rpc", ...opts.args], {
+		const proc = spawn(opts.command, [...(opts.commandArgs ?? []), "--mode", "rpc", ...opts.args], {
 			cwd: opts.cwd,
 			env: { ...process.env, ...opts.env },
 			stdio: ["pipe", "pipe", "pipe"],
 		});
+		this.proc = proc;
 
-		this.proc.on("error", (err) => {
-			this.status = "error";
-			this.lastError = String(err);
-			for (const [id, p] of this.pending.entries()) {
-				p.reject(new Error(`Process error before response (id=${id}): ${String(err)}`));
-			}
-			this.pending.clear();
-		});
-
-		this.proc.stderr?.on("data", (d) => {
+		proc.stderr?.on("data", (d) => {
 			this.stderr += d.toString();
 		});
 
-		this.proc.stdout?.on("data", (d) => {
+		proc.stdout?.on("data", (d) => {
 			this.buffer += d.toString();
 			let idx: number;
 			while ((idx = this.buffer.indexOf("\n")) >= 0) {
@@ -157,18 +178,41 @@ export class TeammateRpc {
 			}
 		});
 
-		this.proc.on("close", (code) => {
-			this.status = code === 0 ? "stopped" : "error";
-			if (code !== 0) this.lastError = `Teammate process exited with code ${code}`;
-			for (const [id, p] of this.pending.entries()) {
-				p.reject(new Error(`Process exited before response (id=${id})`));
+		proc.on("error", (err) => {
+			this.failPending(this.withStderr(`Process error before response: ${String(err)}`));
+		});
+
+		proc.on("close", (code) => {
+			if (this.status !== "stopped") this.status = "error";
+			if (!this.lastError) {
+				this.lastError = this.withStderr(`Teammate process exited with code ${code ?? "unknown"}`);
 			}
-			this.pending.clear();
+			this.failPending(this.lastError);
 			for (const l of this.closeListeners) l(code);
 		});
 
-		// Give the child a moment to boot.
-		await new Promise((r) => setTimeout(r, 120));
+		try {
+			await new Promise<void>((resolve, reject) => {
+				const onSpawn = () => {
+					proc.off("error", onError);
+					resolve();
+				};
+				const onError = (err: Error) => {
+					proc.off("spawn", onSpawn);
+					reject(err);
+				};
+				proc.once("spawn", onSpawn);
+				proc.once("error", onError);
+			});
+			await this.send({ type: "get_state" }, opts.startupTimeoutMs ?? 15_000);
+		} catch (err) {
+			this.status = "error";
+			this.lastError = this.withStderr(err instanceof Error ? err.message : String(err));
+			this.proc = null;
+			if (!proc.killed) proc.kill("SIGTERM");
+			throw new Error(this.lastError);
+		}
+
 		this.status = "idle";
 		const bootNow = Date.now();
 		this.lastStatusChangeAt = bootNow;
@@ -226,7 +270,9 @@ export class TeammateRpc {
 			const pending = this.pending.get(obj.id);
 			if (!pending) return;
 			this.pending.delete(obj.id);
-			pending.resolve(obj);
+			clearTimeout(pending.timeout);
+			if (obj.success) pending.resolve(obj);
+			else pending.reject(new Error(obj.error || `RPC command failed: ${obj.command}`));
 			return;
 		}
 
@@ -255,21 +301,42 @@ export class TeammateRpc {
 		for (const l of this.eventListeners) l(ev);
 	}
 
-	private async send(cmd: RpcCommandWithoutId): Promise<RpcResponse> {
-		if (!this.proc || !this.proc.stdin) throw new Error("Teammate is not running");
+	private failPending(message: string): void {
+		this.status = "error";
+		this.lastError = message;
+		for (const pending of this.pending.values()) {
+			clearTimeout(pending.timeout);
+			pending.reject(new Error(this.lastError));
+		}
+		this.pending.clear();
+	}
+
+	private withStderr(message: string): string {
+		const stderr = this.stderr.trim();
+		return stderr ? `${message}. stderr: ${stderr}` : message;
+	}
+
+	private async send(cmd: RpcCommandWithoutId, timeoutMs = 60_000): Promise<RpcResponse> {
+		const stdin = this.proc?.stdin;
+		if (!stdin?.writable) throw new Error("Teammate is not running");
 		const id = `req-${this.name}-${this.nextId++}`;
 		const full = { id, ...cmd } satisfies RpcCommand;
-
 		const payload = JSON.stringify(full) + "\n";
-		this.proc.stdin.write(payload);
 
 		return await new Promise<RpcResponse>((resolve, reject) => {
-			this.pending.set(id, { resolve, reject });
-			setTimeout(() => {
-				if (!this.pending.has(id)) return;
+			const timeout = setTimeout(() => {
+				if (!this.pending.delete(id)) return;
+				reject(new Error(this.withStderr(`Timeout waiting for response (id=${id}, cmd=${full.type})`)));
+			}, timeoutMs);
+			this.pending.set(id, { resolve, reject, timeout });
+			stdin.write(payload, (err) => {
+				if (!err) return;
+				const pending = this.pending.get(id);
+				if (!pending) return;
 				this.pending.delete(id);
-				reject(new Error(`Timeout waiting for response (id=${id}, cmd=${full.type})`));
-			}, 60_000);
+				clearTimeout(pending.timeout);
+				reject(err);
+			});
 		});
 	}
 }

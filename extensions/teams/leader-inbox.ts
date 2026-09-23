@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { popUnreadMessages, writeToMailbox } from "./mailbox.js";
+import { processUnreadMessages, writeToMailbox } from "./mailbox.js";
 import { sanitizeName } from "./names.js";
 import {
 	TEAM_MAILBOX_NS,
@@ -100,20 +100,12 @@ export async function pollLeaderInbox(opts: {
 	const strings = getTeamsStrings(style);
 	const hooksActive = hooksEnabled ?? Boolean(enqueueHook);
 
-	let msgs: Awaited<ReturnType<typeof popUnreadMessages>>;
-	try {
-		msgs = await popUnreadMessages(teamDir, TEAM_MAILBOX_NS, leadName);
-	} catch (err: unknown) {
-		ctx.ui.notify(err instanceof Error ? err.message : String(err), "warning");
-		return;
-	}
-	if (!msgs.length) return;
-
 	// Collect batch completions across all messages in this poll cycle,
 	// then fire notifications once at the end (avoids duplicate triggers).
 	const batchCompletions: Array<{ taskIds: string[] }> = [];
 
-	for (const m of msgs) {
+	try {
+		await processUnreadMessages(teamDir, TEAM_MAILBOX_NS, leadName, async (m) => {
 		const approved = isShutdownApproved(m.text);
 		if (approved) {
 			const name = sanitizeName(approved.from);
@@ -134,7 +126,7 @@ export async function pollLeaderInbox(opts: {
 				},
 			});
 			ctx.ui.notify(`${formatMemberDisplayName(style, name)} ${strings.shutdownCompletedVerb}`, "info");
-			continue;
+			return;
 		}
 
 		const rejected = isShutdownRejected(m.text);
@@ -148,7 +140,7 @@ export async function pollLeaderInbox(opts: {
 				},
 			});
 			ctx.ui.notify(`${formatMemberDisplayName(style, name)} ${strings.shutdownRefusedVerb}: ${rejected.reason}`, "warning");
-			continue;
+			return;
 		}
 
 		const planReq = isPlanApprovalRequest(m.text);
@@ -161,13 +153,13 @@ export async function pollLeaderInbox(opts: {
 				name,
 				taskId: planReq.taskId,
 			});
-			continue;
+			return;
 		}
 
 		const peerDm = isPeerDmSent(m.text);
 		if (peerDm) {
 			ctx.ui.notify(`${peerDm.from} → ${peerDm.to}: ${peerDm.summary}`, "info");
-			continue;
+			return;
 		}
 
 		const idle = isIdleNotification(m.text);
@@ -343,7 +335,7 @@ export async function pollLeaderInbox(opts: {
 					ctx.ui.notify(`${name} is idle`, "info");
 				}
 			}
-			continue;
+			return;
 		}
 
 		// Unrecognized message = teammate DM → route to leader LLM context
@@ -352,6 +344,10 @@ export async function pollLeaderInbox(opts: {
 		} else {
 			ctx.ui.notify(`Message from ${m.from}: ${m.text}`, "info");
 		}
+		});
+	} catch (err: unknown) {
+		ctx.ui.notify(err instanceof Error ? err.message : String(err), "warning");
+		return;
 	}
 
 	// Fire batch-complete notifications (deduplicated across this poll cycle).

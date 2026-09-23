@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { withLock } from "./fs-lock.js";
@@ -13,6 +14,13 @@ export interface MailboxMessage {
 	 *  even if the agent is mid-turn, rather than queueing for the next idle window. */
 	urgent?: boolean;
 }
+
+interface StoredMailboxMessage extends MailboxMessage {
+	processing?: { id: string; claimedAt: string; pid: number };
+}
+
+const MAILBOX_CLAIM_TTL_MS = 60_000;
+const activeMailboxClaims = new Set<string>();
 
 function inboxDir(teamDir: string, namespace: string): string {
 	return path.join(teamDir, "mailboxes", sanitizeName(namespace), "inboxes");
@@ -34,25 +42,67 @@ function isLockTimeoutError(err: unknown): err is Error {
 	return err instanceof Error && err.message.startsWith("Timeout acquiring lock:");
 }
 
-function coerceMailboxMessage(v: unknown): MailboxMessage | null {
+function coerceMailboxMessage(v: unknown): StoredMailboxMessage | null {
 	if (!isRecord(v)) return null;
 	if (typeof v.from !== "string") return null;
 	if (typeof v.text !== "string") return null;
 	if (typeof v.timestamp !== "string") return null;
-	const read = typeof v.read === "boolean" ? v.read : false;
-	const color = typeof v.color === "string" ? v.color : undefined;
-	const urgent = typeof v.urgent === "boolean" ? v.urgent : undefined;
-	return { from: v.from, text: v.text, timestamp: v.timestamp, read, color, urgent };
+	if (v.read !== undefined && typeof v.read !== "boolean") return null;
+	if (v.color !== undefined && typeof v.color !== "string") return null;
+	if (v.urgent !== undefined && typeof v.urgent !== "boolean") return null;
+	if (v.processing !== undefined && (!isRecord(v.processing) || typeof v.processing.id !== "string" || typeof v.processing.claimedAt !== "string" || typeof v.processing.pid !== "number")) return null;
+	return {
+		from: v.from,
+		text: v.text,
+		timestamp: v.timestamp,
+		read: v.read ?? false,
+		color: v.color,
+		urgent: v.urgent,
+		processing: v.processing as StoredMailboxMessage["processing"],
+	};
+}
+
+function isClaimActive(claim: NonNullable<StoredMailboxMessage["processing"]>): boolean {
+	const age = Date.now() - Date.parse(claim.claimedAt);
+	if (!Number.isFinite(age) || age > MAILBOX_CLAIM_TTL_MS) return false;
+	if (claim.pid === process.pid) return activeMailboxClaims.has(claim.id);
+	try {
+		process.kill(claim.pid, 0);
+		return true;
+	} catch (err: unknown) {
+		return !(isErrnoException(err) && err.code === "ESRCH");
+	}
+}
+
+function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
+	return typeof err === "object" && err !== null && "code" in err;
 }
 
 async function readJsonArray(file: string): Promise<unknown[]> {
+	let raw: string;
 	try {
-		const raw = await fs.promises.readFile(file, "utf8");
-		const parsed: unknown = JSON.parse(raw);
-		return Array.isArray(parsed) ? parsed : [];
-	} catch {
-		return [];
+		raw = await fs.promises.readFile(file, "utf8");
+	} catch (err: unknown) {
+		if (isErrnoException(err) && err.code === "ENOENT") return [];
+		throw new Error(`Unable to read mailbox ${file}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
 	}
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch (err: unknown) {
+		throw new Error(`Invalid mailbox JSON in ${file}`, { cause: err });
+	}
+	if (!Array.isArray(parsed)) throw new Error(`Invalid mailbox JSON in ${file}: expected an array`);
+	return parsed;
+}
+
+async function readMailbox(file: string): Promise<StoredMailboxMessage[]> {
+	return (await readJsonArray(file)).map((message, index) => {
+		const mailboxMessage = coerceMailboxMessage(message);
+		if (!mailboxMessage) throw new Error(`Invalid mailbox message at index ${index} in ${file}`);
+		return mailboxMessage;
+	});
 }
 
 async function writeJsonAtomic(file: string, data: unknown): Promise<void> {
@@ -77,7 +127,7 @@ export async function writeToMailbox(
 	await withLock(
 		lockPath,
 		async () => {
-			const arr = await readJsonArray(inboxPath);
+			const arr = await readMailbox(inboxPath);
 			const m: MailboxMessage = {
 				from: msg.from,
 				text: msg.text,
@@ -107,14 +157,12 @@ export async function popUnreadMessages(teamDir: string, namespace: string, agen
 		return await withLock(
 			lockPath,
 			async () => {
-				const arr = (await readJsonArray(inboxPath))
-					.map(coerceMailboxMessage)
-					.filter((m): m is MailboxMessage => m !== null);
+				const arr = await readMailbox(inboxPath);
 				if (arr.length === 0) return [];
 
 				const unread: MailboxMessage[] = [];
 				const updated = arr.map((m) => {
-					if (!m.read) {
+					if (!m.read && !m.processing) {
 						const next = { ...m, read: true };
 						unread.push(next);
 						return next;
@@ -132,5 +180,83 @@ export async function popUnreadMessages(teamDir: string, namespace: string, agen
 		// lockfile behind. Treat as transient and try again on the next poll tick.
 		if (isLockTimeoutError(err)) return [];
 		throw err;
+	}
+}
+
+/**
+ * Claim the next unread message under the lock, then run its handler outside
+ * the lock. Claiming preserves FIFO across concurrent consumers; successful
+ * handling is acknowledged in a second locked transaction.
+ */
+export async function processUnreadMessages(
+	teamDir: string,
+	namespace: string,
+	agentName: string,
+	handler: (message: MailboxMessage) => Promise<void>,
+): Promise<void> {
+	const inboxPath = getInboxPath(teamDir, namespace, agentName);
+	const lockPath = `${inboxPath}.lock`;
+
+	await ensureDir(path.dirname(inboxPath));
+	while (true) {
+		const claimId = randomUUID();
+		const claimed = await withLock(
+			lockPath,
+			async () => {
+				const messages = await readMailbox(inboxPath);
+				const index = messages.findIndex((message) => !message.read);
+				if (index < 0) return null;
+				const message = messages.at(index);
+				if (!message) return null;
+				if (message.processing && isClaimActive(message.processing)) return null;
+				messages[index] = { ...message, processing: { id: claimId, claimedAt: new Date().toISOString(), pid: process.pid } };
+				await writeJsonAtomic(inboxPath, messages);
+				const { processing: _processing, ...unclaimed } = message;
+				return unclaimed;
+			},
+			{ label: `mailbox:claim:${namespace}:${agentName}` },
+		);
+		if (!claimed) return;
+
+		activeMailboxClaims.add(claimId);
+		try {
+			try {
+				await handler(claimed);
+			} catch (err: unknown) {
+				await withLock(
+					lockPath,
+					async () => {
+						const messages = await readMailbox(inboxPath);
+						const index = messages.findIndex((message) => message.processing?.id === claimId);
+						if (index >= 0) {
+							const claimedMessage = messages.at(index);
+							if (!claimedMessage) return;
+							const { processing: _processing, ...unclaimed } = claimedMessage;
+							messages[index] = unclaimed;
+							await writeJsonAtomic(inboxPath, messages);
+						}
+					},
+					{ label: `mailbox:release:${namespace}:${agentName}` },
+				);
+				throw err;
+			}
+
+			await withLock(
+				lockPath,
+				async () => {
+					const messages = await readMailbox(inboxPath);
+					const index = messages.findIndex((message) => message.processing?.id === claimId);
+					if (index < 0) throw new Error(`Mailbox claim lost for ${inboxPath}`);
+					const claimedMessage = messages.at(index);
+					if (!claimedMessage) throw new Error(`Mailbox claim lost for ${inboxPath}`);
+					const { processing: _processing, ...acknowledged } = claimedMessage;
+					messages[index] = { ...acknowledged, read: true };
+					await writeJsonAtomic(inboxPath, messages);
+				},
+				{ label: `mailbox:ack:${namespace}:${agentName}` },
+			);
+		} finally {
+			activeMailboxClaims.delete(claimId);
+		}
 	}
 }

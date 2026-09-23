@@ -34,8 +34,8 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 	return typeof v === "object" && v !== null;
 }
 
-function toStringArray(v: unknown): string[] {
-	return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+function isStringArray(v: unknown): v is string[] {
+	return Array.isArray(v) && v.every((x) => typeof x === "string");
 }
 
 function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
@@ -43,12 +43,18 @@ function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
 }
 
 async function readJson(file: string): Promise<unknown | null> {
+	let raw: string;
 	try {
-		const raw = await fs.promises.readFile(file, "utf8");
-		const parsed: unknown = JSON.parse(raw);
-		return parsed;
-	} catch {
-		return null;
+		raw = await fs.promises.readFile(file, "utf8");
+	} catch (err: unknown) {
+		if (isErrnoException(err) && err.code === "ENOENT") return null;
+		throw new Error(`Unable to read task ${file}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+	}
+
+	try {
+		return JSON.parse(raw) as unknown;
+	} catch (err: unknown) {
+		throw new Error(`Invalid task JSON in ${file}`, { cause: err });
 	}
 }
 
@@ -70,19 +76,33 @@ function coerceTask(obj: unknown): TeamTask | null {
 	if (typeof obj.description !== "string") return null;
 	if (!isStatus(obj.status)) return null;
 
-	const now = new Date().toISOString();
+	if (obj.owner !== undefined && typeof obj.owner !== "string") return null;
+	if (!isStringArray(obj.blocks)) return null;
+	if (!isStringArray(obj.blockedBy)) return null;
+	if (obj.metadata !== undefined && !isRecord(obj.metadata)) return null;
+	if (typeof obj.createdAt !== "string") return null;
+	if (typeof obj.updatedAt !== "string") return null;
+
 	return {
 		id: obj.id,
 		subject: obj.subject,
 		description: obj.description,
 		owner: typeof obj.owner === "string" ? obj.owner : undefined,
 		status: obj.status,
-		blocks: toStringArray(obj.blocks),
-		blockedBy: toStringArray(obj.blockedBy),
-		metadata: isRecord(obj.metadata) ? obj.metadata : undefined,
-		createdAt: typeof obj.createdAt === "string" ? obj.createdAt : now,
-		updatedAt: typeof obj.updatedAt === "string" ? obj.updatedAt : now,
+		blocks: obj.blocks,
+		blockedBy: obj.blockedBy,
+		metadata: obj.metadata,
+		createdAt: obj.createdAt,
+		updatedAt: obj.updatedAt,
 	};
+}
+
+async function readTask(file: string): Promise<TeamTask | null> {
+	const obj = await readJson(file);
+	if (obj === null) return null;
+	const task = coerceTask(obj);
+	if (!task) throw new Error(`Invalid task JSON in ${file}`);
+	return task;
 }
 
 async function allocateTaskId(taskListDir: string): Promise<string> {
@@ -143,22 +163,20 @@ export async function listTasks(teamDir: string, taskListId: string): Promise<Te
 			.map((e) => e.name)
 			.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
-		const out: TeamTask[] = [];
-		for (const f of files) {
-			const obj = await readJson(path.join(dir, f));
-			const task = coerceTask(obj);
-			if (task) out.push(task);
-		}
-		return out;
-	} catch {
-		return [];
+		return await Promise.all(files.map(async (file) => {
+			const task = await readTask(path.join(dir, file));
+			if (!task) throw new Error(`Task disappeared while listing: ${path.join(dir, file)}`);
+			return task;
+		}));
+	} catch (err: unknown) {
+		if (isErrnoException(err) && err.code === "ENOENT") return [];
+		throw err;
 	}
 }
 
 export async function getTask(teamDir: string, taskListId: string, taskId: string): Promise<TeamTask | null> {
 	const dir = getTaskListDir(teamDir, taskListId);
-	const obj = await readJson(taskPath(dir, taskId));
-	return coerceTask(obj);
+	return await readTask(taskPath(dir, taskId));
 }
 
 export async function createTask(
@@ -201,8 +219,7 @@ export async function updateTask(
 	return await withLock(
 		lock,
 		async () => {
-			const curObj = await readJson(file);
-			const cur = coerceTask(curObj);
+			const cur = await readTask(file);
 			if (!cur) return null;
 			const next = updater({ ...cur });
 			next.updatedAt = new Date().toISOString();
@@ -391,6 +408,66 @@ function uniqStrings(xs: string[]): string[] {
 	return out;
 }
 
+async function withTaskLocks<T>(files: string[], fn: () => Promise<T>): Promise<T> {
+	const locks = [...new Set(files)].sort().map((file) => `${file}.lock`);
+	const acquire = async (index: number): Promise<T> => {
+		if (index === locks.length) return await fn();
+		const lock = locks[index];
+		if (!lock) throw new Error("Missing task lock");
+		return await withLock(lock, () => acquire(index + 1), { label: `tasks:dependency:${path.basename(lock)}` });
+	};
+	return await acquire(0);
+}
+
+async function changeTaskDependency(
+	teamDir: string,
+	taskListId: string,
+	taskId: string,
+	depId: string,
+	add: boolean,
+): Promise<TaskDependencyOpResult> {
+	if (!taskId || !depId) return { ok: false, error: "Missing task id or dependency id" };
+	if (taskId === depId) return { ok: false, error: add ? "Task cannot depend on itself" : "Task cannot remove itself as a dependency" };
+
+	const dir = getTaskListDir(teamDir, taskListId);
+	await ensureDir(dir);
+	const taskFile = taskPath(dir, taskId);
+	const depFile = taskPath(dir, depId);
+
+	return await withTaskLocks([taskFile, depFile], async () => {
+		const task = await readTask(taskFile);
+		if (!task) return { ok: false, error: `Task not found: ${taskId}` };
+		const dependency = await readTask(depFile);
+		if (!dependency) return { ok: false, error: `Dependency task not found: ${depId}` };
+
+		const now = new Date().toISOString();
+		const updatedTask: TeamTask = {
+			...task,
+			blockedBy: add ? uniqStrings([...task.blockedBy, depId]) : task.blockedBy.filter((id) => id !== depId),
+			updatedAt: now,
+		};
+		const updatedDependency: TeamTask = {
+			...dependency,
+			blocks: add ? uniqStrings([...dependency.blocks, taskId]) : dependency.blocks.filter((id) => id !== taskId),
+			updatedAt: now,
+		};
+
+		try {
+			await writeJsonAtomic(taskFile, updatedTask);
+			await writeJsonAtomic(depFile, updatedDependency);
+		} catch (err: unknown) {
+			try {
+				await writeJsonAtomic(taskFile, task);
+				await writeJsonAtomic(depFile, dependency);
+			} catch (rollbackErr: unknown) {
+				throw new Error(`Unable to update dependency atomically; rollback failed: ${rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr)}`, { cause: err });
+			}
+			throw err;
+		}
+		return { ok: true, task: updatedTask, dependency: updatedDependency };
+	});
+}
+
 /**
  * Add a dependency edge: taskId is blockedBy depId (and depId blocks taskId).
  */
@@ -400,27 +477,7 @@ export async function addTaskDependency(
 	taskId: string,
 	depId: string,
 ): Promise<TaskDependencyOpResult> {
-	if (!taskId || !depId) return { ok: false, error: "Missing task id or dependency id" };
-	if (taskId === depId) return { ok: false, error: "Task cannot depend on itself" };
-
-	const task = await getTask(teamDir, taskListId, taskId);
-	if (!task) return { ok: false, error: `Task not found: ${taskId}` };
-	const dep = await getTask(teamDir, taskListId, depId);
-	if (!dep) return { ok: false, error: `Dependency task not found: ${depId}` };
-
-	const updatedTask = await updateTask(teamDir, taskListId, taskId, (cur) => ({
-		...cur,
-		blockedBy: uniqStrings([...(cur.blockedBy ?? []), depId]),
-	}));
-	if (!updatedTask) return { ok: false, error: `Task not found: ${taskId}` };
-
-	const updatedDep = await updateTask(teamDir, taskListId, depId, (cur) => ({
-		...cur,
-		blocks: uniqStrings([...(cur.blocks ?? []), taskId]),
-	}));
-	if (!updatedDep) return { ok: false, error: `Dependency task not found: ${depId}` };
-
-	return { ok: true, task: updatedTask, dependency: updatedDep };
+	return await changeTaskDependency(teamDir, taskListId, taskId, depId, true);
 }
 
 /**
@@ -432,27 +489,7 @@ export async function removeTaskDependency(
 	taskId: string,
 	depId: string,
 ): Promise<TaskDependencyOpResult> {
-	if (!taskId || !depId) return { ok: false, error: "Missing task id or dependency id" };
-	if (taskId === depId) return { ok: false, error: "Task cannot remove itself as a dependency" };
-
-	const task = await getTask(teamDir, taskListId, taskId);
-	if (!task) return { ok: false, error: `Task not found: ${taskId}` };
-	const dep = await getTask(teamDir, taskListId, depId);
-	if (!dep) return { ok: false, error: `Dependency task not found: ${depId}` };
-
-	const updatedTask = await updateTask(teamDir, taskListId, taskId, (cur) => ({
-		...cur,
-		blockedBy: (cur.blockedBy ?? []).filter((x) => x !== depId),
-	}));
-	if (!updatedTask) return { ok: false, error: `Task not found: ${taskId}` };
-
-	const updatedDep = await updateTask(teamDir, taskListId, depId, (cur) => ({
-		...cur,
-		blocks: (cur.blocks ?? []).filter((x) => x !== taskId),
-	}));
-	if (!updatedDep) return { ok: false, error: `Dependency task not found: ${depId}` };
-
-	return { ok: true, task: updatedTask, dependency: updatedDep };
+	return await changeTaskDependency(teamDir, taskListId, taskId, depId, false);
 }
 
 export type TaskClearMode = "completed" | "all";
@@ -512,32 +549,32 @@ export async function clearTasks(
 			continue;
 		}
 
-		let shouldDelete = false;
-		let taskIdFromName = e.name.slice(0, -".json".length);
+		await withTaskLocks([file], async () => {
+			let shouldDelete = mode === "all";
+			let taskIdFromName = e.name.slice(0, -".json".length);
 
-		if (mode === "all") {
-			shouldDelete = true;
-		} else {
-			const obj = await readJson(file);
-			const task = coerceTask(obj);
-			if (task && task.status === "completed") {
-				shouldDelete = true;
-				taskIdFromName = task.id;
+			if (mode === "completed") {
+				const task = await readTask(file);
+				if (!task) return;
+				if (task.status === "completed") {
+					shouldDelete = true;
+					taskIdFromName = task.id;
+				}
 			}
-		}
 
-		if (!shouldDelete) {
-			skippedTaskIds.push(taskIdFromName);
-			continue;
-		}
+			if (!shouldDelete) {
+				skippedTaskIds.push(taskIdFromName);
+				return;
+			}
 
-		try {
-			await fs.promises.unlink(file);
-			deletedTaskIds.push(taskIdFromName);
-		} catch (err: unknown) {
-			if (isErrnoException(err) && err.code === "ENOENT") continue;
-			errors.push({ file, error: err instanceof Error ? err.message : String(err) });
-		}
+			try {
+				await fs.promises.unlink(file);
+				deletedTaskIds.push(taskIdFromName);
+			} catch (err: unknown) {
+				if (isErrnoException(err) && err.code === "ENOENT") return;
+				errors.push({ file, error: err instanceof Error ? err.message : String(err) });
+			}
+		});
 	}
 
 	return { mode, taskListId, taskListDir, deletedTaskIds, skippedTaskIds, errors };

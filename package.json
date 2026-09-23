@@ -1,7 +1,7 @@
 {
   "name": "@tmustier/pi-agent-teams",
   "version": "0.5.6",
-  "description": "Claude Code agent teams style workflow for Pi.",
+  "description": "Claude Code agent teams style workflow for Oh My Pi.",
   "license": "MIT",
   "author": "Thomas Mustier",
   "private": false,
@@ -30,6 +30,7 @@
     "lint": "eslint 'extensions/**/*.ts' 'scripts/**/*.ts' 'scripts/**/*.mts'",
     "typecheck": "tsc -p tsconfig.strict.json",
     "check": "npm run typecheck && npm run lint",
+    "test:rpc": "tsx scripts/teammate-rpc-test.mts",
     "smoke-test": "tsx scripts/smoke-test.mts",
     "integration-claim-test": "tsx scripts/integration-claim-test.mts",
     "integration-spawn-overrides-test": "tsx scripts/integration-spawn-overrides-test.mts",

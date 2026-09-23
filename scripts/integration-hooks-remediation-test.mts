@@ -26,6 +26,7 @@ import { writeToMailbox, getInboxPath } from "../extensions/teams/mailbox.js";
 import { TEAM_MAILBOX_NS } from "../extensions/teams/protocol.js";
 import { createTask, getTask, listTasks, updateTask, type TeamTask } from "../extensions/teams/task-store.js";
 import { updateTeamHooksPolicy } from "../extensions/teams/team-config.js";
+import { resolveTeammateCli } from "../extensions/teams/teammate-rpc.js";
 import { sleep, terminateAll } from "./lib/pi-workers.js";
 
 type RpcCommand = { id?: string; type: "get_state" };
@@ -198,7 +199,7 @@ const leaderArgs = [
 	entryPath,
 ];
 
-const leader = spawn("pi", leaderArgs, {
+const leader = spawn(resolveTeammateCli().command, leaderArgs, {
 	cwd: repoRoot,
 	env: leaderEnv,
 	stdio: ["pipe", "pipe", "pipe"],

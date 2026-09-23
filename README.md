@@ -1,6 +1,6 @@
-# pi-agent-teams
+# omp-agent-teams
 
-An experimental [Pi](https://pi.dev) extension that brings [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams) to Pi. Spawn teammates, share a task list, and coordinate work across multiple Pi sessions.
+An experimental [Oh My Pi](https://github.com/can1357/oh-my-pi) extension that brings Claude Code-style agent teams to OMP. Spawn teammates, share a task list, and coordinate work across multiple OMP sessions.
 
 > **Status:** MVP (command-driven + status widget). See [`docs/claude-parity.md`](docs/claude-parity.md) for the full roadmap.
 
@@ -15,7 +15,7 @@ Core agent-teams primitives, matching Claude's design:
 - **LLM-callable teams tool** — the model can spawn teammates, delegate tasks, mutate task assignment/status/dependencies, message teammates, and run lifecycle actions in tool calls (no slash commands needed).
 - **Team done + cleanup** — `/team done` ends a run (stops teammates, hides the widget, notifies with a summary); the widget auto-detects when all tasks are complete and shows a hint. `/team cleanup` tears down artifacts afterward.
 
-Additional Pi-specific capabilities:
+Additional OMP capabilities:
 
 - **Git worktrees** — optionally give each teammate its own worktree so they work on isolated branches without conflicting edits.
 - **Session branching** — clone the leader's conversation context into a teammate so it starts with full awareness of the work so far, instead of from scratch.
@@ -38,7 +38,7 @@ Configure via:
 
 You can add your own styles by creating JSON files under:
 
-- `~/.pi/agent/teams/_styles/<style>.json`
+- `~/.omp/agent/teams/_styles/<style>.json`
 
 The file can override strings and naming rules.
 
@@ -62,25 +62,19 @@ Example:
 
 ## Install
 
-**Option A — install from npm:**
+Install the local fork:
 
 ```bash
-pi install npm:@tmustier/pi-agent-teams
+omp install ~/code/omp-agent-teams
 ```
 
-**Option B — load directly (dev):**
+Or load it directly while developing:
 
 ```bash
-pi -e ~/projects/pi-agent-teams/extensions/teams/index.ts
+omp -e ~/code/omp-agent-teams/extensions/teams/index.ts
 ```
 
-**Option C — install from a local folder:**
-
-```bash
-pi install ~/projects/pi-agent-teams
-```
-
-Then run `pi` normally; the extension auto-discovers.
+Then run `omp` normally; the extension auto-discovers. Teammates use the `omp` executable by default. Set `PI_TEAMS_CLI` and `PI_TEAMS_CLI_DIALECT=pi` only when running the extension under upstream Pi.
 
 Verify with `/team id` — it should print the current team info.
 
@@ -99,7 +93,7 @@ Or drive it manually:
 /team spawn alice                          # spawn a teammate (fresh session, shared workspace)
 /team spawn bob branch worktree            # spawn with leader context + isolated worktree
 
-/team attach list                          # discover existing teams under ~/.pi/agent/teams
+/team attach list                          # discover existing teams under ~/.omp/agent/teams
 /team attach <teamId> [--claim]            # attach this session to an existing team workspace (force takeover with --claim)
 /team detach                               # return to this session's own team
 
@@ -205,7 +199,7 @@ All management commands live under `/team`.
 | `/team detach` | Return to this session's own team workspace |
 | `/team style` | Show current style + usage |
 | `/team style list` | List available styles (built-in + custom) |
-| `/team style init <name> [extends <base>]` | Create a custom style template under `~/.pi/agent/teams/_styles/` |
+| `/team style init <name> [extends <base>]` | Create a custom style template under `~/.omp/agent/teams/_styles/` |
 | `/team style <name>` | Set style (built-in or custom) |
 | `/team send <name> <msg>` | Send a prompt over RPC |
 | `/team steer <name> <msg>` | Redirect an in-flight run |
@@ -282,7 +276,9 @@ The `member_status` tool action provides the same information programmatically f
 
 | Environment variable | Purpose | Default |
 | --- | --- | --- |
-| `PI_TEAMS_ROOT_DIR` | Storage root (absolute or relative to `~/.pi/agent`) | `~/.pi/agent/teams` |
+| `PI_TEAMS_ROOT_DIR` | Storage root (absolute or relative to the OMP agent directory) | `~/.omp/agent/teams` |
+| `PI_TEAMS_CLI` | Executable used for RPC teammates | `omp` |
+| `PI_TEAMS_CLI_DIALECT` | Session argument dialect (`omp` or `pi`); inferred from the executable name by default | `omp` |
 | `PI_TEAMS_DEFAULT_AUTO_CLAIM` | Whether spawned teammates auto-claim tasks | `1` (on) |
 | `PI_TEAMS_STYLE` | UI style id (built-in: `normal`, `soviet`, `pirate`, or custom) | `normal` |
 | `PI_TEAMS_HOOKS_ENABLED` | Enable leader-side hooks/quality gates | `0` (off) |
@@ -323,7 +319,7 @@ export PI_TEAMS_HOOKS_ENABLED=1
 
 Then create hook scripts under:
 
-- `<teamsRoot>/_hooks/` (default: `~/.pi/agent/teams/_hooks/`)
+- `<teamsRoot>/_hooks/` (default: `~/.omp/agent/teams/_hooks/`)
 
 Recognized hook names:
 
@@ -403,13 +399,13 @@ npm run smoke-test
 
 Filesystem-level smoke test of the task store, mailbox, team config, and protocol parsers.
 
-### E2E RPC test (spawns pi + one teammate)
+### E2E RPC test (spawns OMP + one teammate)
 
 ```bash
 node scripts/e2e-rpc-test.mjs
 ```
 
-Starts a leader in RPC mode, spawns a teammate, runs a shutdown handshake, verifies cleanup. Sets `PI_TEAMS_ROOT_DIR` to a temp directory so nothing touches `~/.pi/agent/teams`.
+Starts an OMP leader in RPC mode, spawns a teammate, runs a shutdown handshake, and verifies cleanup. It sets `PI_TEAMS_ROOT_DIR` to a temporary directory so nothing touches `~/.omp/agent/teams`.
 
 ### Integration: hooks remediation loop
 

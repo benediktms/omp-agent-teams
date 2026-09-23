@@ -29,6 +29,7 @@ import { taskAssignmentPayload } from "../extensions/teams/protocol.js";
 import { branchSelectionNote, resolveBranchLeafSelection } from "../extensions/teams/session-branching.js";
 import { createTask, getTask } from "../extensions/teams/task-store.js";
 import { ensureTeamConfig, loadTeamConfig } from "../extensions/teams/team-config.js";
+import { resolveTeammateCli, sessionResumeArgs } from "../extensions/teams/teammate-rpc.js";
 import { sleep, terminateAll } from "./lib/pi-workers.js";
 
 function parseArgs(argv: readonly string[]): { timeoutSec: number } {
@@ -221,13 +222,13 @@ const repoRoot = path.resolve(scriptDir, "..");
 const entryPath = path.join(repoRoot, "extensions", "teams", "index.ts");
 assert(fs.existsSync(entryPath), `Missing teams entry path: ${entryPath}`);
 
+const cli = resolveTeammateCli();
 const worker = spawn(
-	"pi",
+	cli.command,
 	[
 		"--mode",
 		"rpc",
-		"--session",
-		branchedSessionFile,
+		...sessionResumeArgs(cli, branchedSessionFile),
 		"--session-dir",
 		sessionsDir,
 		"--provider",

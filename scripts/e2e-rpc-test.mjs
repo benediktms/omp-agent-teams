@@ -57,10 +57,6 @@ async function run() {
 		"rpc",
 		"--no-session",
 		"--no-tools",
-		"--provider",
-		"openai-codex",
-		"--model",
-		"gpt-5.1-codex-mini",
 		"--thinking",
 		"minimal",
 		"--no-extensions",
@@ -68,7 +64,7 @@ async function run() {
 		extensionPath,
 	];
 
-	const proc = spawn("pi", args, { env, stdio: ["pipe", "pipe", "pipe"] });
+	const proc = spawn(process.env.PI_TEAMS_CLI?.trim() || "omp", args, { env, stdio: ["pipe", "pipe", "pipe"] });
 
 	let stderr = "";
 	proc.stderr.on("data", (d) => {
@@ -116,7 +112,7 @@ async function run() {
 			setTimeout(() => {
 				if (!pending.has(id)) return;
 				pending.delete(id);
-				reject(new Error(`Timeout waiting for response: ${id} (${full.type})`));
+				reject(new Error(`Timeout waiting for response: ${id} (${full.type}). stderr=${stderr}`));
 			}, 30_000);
 		});
 	};
@@ -186,7 +182,7 @@ async function run() {
 				try {
 					const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
 					const alice = cfg.members?.find((m) => m.name === "alice");
-					return alice?.meta?.sessionName === "pi agent teams - comrade alice";
+					return alice?.meta?.sessionName === "pi agent teams - teammate alice";
 				} catch {
 					return false;
 				}
@@ -213,43 +209,7 @@ async function run() {
 		);
 		console.log("OK: alice offline after /team shutdown alice");
 
-		// ---------------------------------------------------------------------
-		// Shutdown
-		// ---------------------------------------------------------------------
-		await send({ type: "prompt", message: "/team shutdown" });
-
-		// RPC mode nuance: prompt is fire-and-forget. Extension commands run async,
-		// but rpc-mode only checks the shutdownRequested flag after handling *another*
-		// input line. Keep sending cheap commands until the process exits.
-		const kickTimer = setInterval(() => {
-			try {
-				proc.stdin.write(JSON.stringify({ type: "get_state", id: `kick-${Date.now()}` }) + "\n");
-			} catch {
-				// ignore
-			}
-		}, 250);
-
-		await new Promise((resolve, reject) => {
-			const timeout = setTimeout(() => {
-				reject(new Error(`Timeout waiting for pi to exit. stderr=${stderr}`));
-			}, 30_000);
-
-			proc.on("close", (code) => {
-				clearInterval(kickTimer);
-				clearTimeout(timeout);
-				if (code === 0) resolve();
-				else reject(new Error(`pi exited with code ${code}. stderr=${stderr}`));
-			});
-		});
-
-		// Verify alice offline after shutdown
-		try {
-			const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-			const alice = cfg.members?.find((m) => m.name === "alice");
-			if (alice) console.log("alice final status:", alice.status);
-		} catch {
-			// ignore
-		}
+		// Team lifecycle commands stop workers; the OMP leader RPC remains active.
 
 		console.log("OK: e2e rpc test passed");
 	} finally {

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Default RPC teammates to OMP, use OMP's `--resume` session argument, and allow `PI_TEAMS_CLI`/`PI_TEAMS_CLI_DIALECT` overrides for upstream Pi compatibility.
+
+### Fixed
+- Reject missing or unresponsive teammate executables during startup instead of reporting idle zero-token workers.
+- Register RPC requests before writing to stdin so immediate responses cannot be lost.
+- Acknowledge leader mailbox messages only after successful handling, with bounded stale-claim recovery so crashes cannot permanently block FIFO delivery.
+- Keep both sides of task dependency edges consistent during ordinary write failures and concurrent task clearing.
+- Surface malformed or unreadable mailbox/task state instead of treating it as empty and overwriting persisted data.
+
 ## [0.5.6] - 2026-06-13
 
 ### Fixes

@@ -7,7 +7,7 @@ import { writeToMailbox } from "./mailbox.js";
 import { sanitizeName } from "./names.js";
 import { TEAM_MAILBOX_NS, taskAssignmentPayload } from "./protocol.js";
 import { createTask, listTasks, unassignTasksForAgent, updateTask, type TeamTask } from "./task-store.js";
-import { TeammateRpc } from "./teammate-rpc.js";
+import { resolveTeammateCli, sessionResumeArgs, TeammateRpc } from "./teammate-rpc.js";
 import { ensureTeamConfig, loadTeamConfig, setMemberStatus, upsertMember, type TeamConfig } from "./team-config.js";
 import { getTeamDir, getTeamsRootDir } from "./paths.js";
 import { assessAttachClaimFreshness, heartbeatTeamAttachClaim, readTeamAttachClaim, releaseTeamAttachClaim } from "./team-attach-claim.js";
@@ -592,8 +592,9 @@ export function runLeader(pi: ExtensionAPI): void {
 
 		const builtInToolSet = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
 		const tools = (pi.getActiveTools() ?? []).filter((t) => builtInToolSet.has(t));
+		const cli = resolveTeammateCli();
 		const argsForChild: string[] = [];
-		if (sessionFile) argsForChild.push("--session", sessionFile);
+		if (sessionFile) argsForChild.push(...sessionResumeArgs(cli, sessionFile));
 		argsForChild.push("--session-dir", teamSessionsDir);
 		if (tools.length) argsForChild.push("--tools", tools.join(","));
 
@@ -625,6 +626,7 @@ export function runLeader(pi: ExtensionAPI): void {
 
 		try {
 			await t.start({
+				command: cli.command,
 				cwd: childCwd,
 				env: {
 					PI_TEAMS_WORKER: "1",
