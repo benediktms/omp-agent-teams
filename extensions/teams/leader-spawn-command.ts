@@ -36,6 +36,7 @@ export async function handleTeamSpawnCommand(opts: {
 	let workspaceMode: WorkspaceMode = "shared";
 	let planRequired = false;
 	let model: string | undefined;
+	let agent: string | undefined;
 	let thinking: ThinkingLevel | undefined;
 
 	for (let i = 0; i < rest.length; i++) {
@@ -52,6 +53,21 @@ export async function handleTeamSpawnCommand(opts: {
 		}
 		if (a === "plan") {
 			planRequired = true;
+			continue;
+		}
+
+		if (a === "--agent") {
+			const next = rest[i + 1];
+			if (!next) {
+				ctx.ui.notify("Usage: /team spawn <name> [fresh|branch] [shared|worktree] [plan] [--agent <definition-name>] [--model <provider>/<modelId>] [--thinking <level>]", "error");
+				return;
+			}
+			agent = next;
+			i++;
+			continue;
+		}
+		if (a.startsWith("--agent=")) {
+			agent = a.slice("--agent=".length);
 			continue;
 		}
 
@@ -105,13 +121,21 @@ export async function handleTeamSpawnCommand(opts: {
 
 	model = model?.trim();
 	if (model === "") model = undefined;
+	agent = agent?.trim();
+	if (agent !== undefined && !nameRaw) {
+		ctx.ui.notify(
+			"Usage: /team spawn <name> [fresh|branch] [shared|worktree] [plan] --agent <definition-name> [--model <provider>/<modelId>] [--thinking <level>]",
+			"error",
+		);
+		return;
+	}
 
 	// Auto-pick a name when the current style allows it.
 	if (!nameRaw) {
 		const naming = getTeamsNamingRules(style);
 		if (naming.requireExplicitSpawnName) {
 			ctx.ui.notify(
-				"Usage: /team spawn <name> [fresh|branch] [shared|worktree] [plan] [--model <provider>/<modelId>] [--thinking <level>]",
+				"Usage: /team spawn <name> [fresh|branch] [shared|worktree] [plan] [--agent <definition-name>] [--model <provider>/<modelId>] [--thinking <level>]",
 				"error",
 			);
 			return;
@@ -135,7 +159,15 @@ export async function handleTeamSpawnCommand(opts: {
 		nameRaw = picked;
 	}
 
-	const res = await spawnTeammate(ctx, { name: nameRaw, mode, workspaceMode, planRequired, model, thinking });
+	const res = await spawnTeammate(ctx, {
+		name: nameRaw,
+		mode,
+		workspaceMode,
+		planRequired,
+		model,
+		agent,
+		thinking,
+	});
 	if (!res.ok) {
 		ctx.ui.notify(res.error, "error");
 		return;
@@ -144,6 +176,7 @@ export async function handleTeamSpawnCommand(opts: {
 	for (const w of res.warnings) ctx.ui.notify(w, "warning");
 	const displayName = formatMemberDisplayName(style, res.name);
 	const extras: string[] = [];
+	if (res.agent) extras.push(`agent:${res.agent}`);
 	if (res.model) extras.push(res.model);
 	if (res.thinking) extras.push(`thinking:${res.thinking}`);
 	const extrasStr = extras.length > 0 ? ` \u00b7 ${extras.join(" \u00b7 ")}` : "";

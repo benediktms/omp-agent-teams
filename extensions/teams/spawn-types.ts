@@ -13,10 +13,14 @@ export interface SpawnTeammateOptions {
 	 * Optional model override for the spawned teammate.
 	 *
 	 * Supported forms:
-	 * - "<provider>/<modelId>"  (e.g. "openai-codex/gpt-5.1-codex-mini")
-	 * - "<modelId>"             (provider inherited from leader when available)
+	 * - "<provider>/<modelId>"
+	 * - "<modelId>" (generic teammates inherit the leader provider; named profiles resolve through OMP)
 	 */
 	model?: string;
+	/**
+	 * Optional named OMP agent definition. This is independent from the teammate name.
+	 */
+	agent?: string;
 	/** Optional thinking level override for the spawned teammate. */
 	thinking?: ThinkingLevel;
 }
@@ -29,10 +33,11 @@ export type SpawnTeammateResult =
 			workspaceMode: WorkspaceMode;
 			childCwd?: string;
 			note?: string;
+			agent?: string;
 			/** The resolved model string (provider/modelId or modelId), if any. */
 			model?: string;
 			/** The effective thinking level for this teammate. */
-			thinking?: ThinkingLevel;
+			thinking?: string;
 			warnings: string[];
 	  }
 	| { ok: false; error: string };

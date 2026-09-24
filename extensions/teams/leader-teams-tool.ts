@@ -105,7 +105,7 @@ const TeamsWorkspaceModeSchema = stringEnum(["shared", "worktree"] as const, {
 
 const TeamsThinkingLevelSchema = stringEnum(["off", "minimal", "low", "medium", "high", "xhigh"] as const, {
 	description:
-		"Thinking level to use for spawned comrades (defaults to the leader's current thinking level when omitted).",
+		"Explicit thinking override. Generic teammates otherwise inherit the leader setting; named agent definitions use their own setting.",
 });
 
 const TeamsHookFailureActionSchema = stringEnum(["warn", "followup", "reopen", "reopen_followup"] as const, {
@@ -152,10 +152,15 @@ const TeamsToolParamsSchema = Type.Object({
 	model: Type.Optional(
 		Type.String({
 			description:
-				"Optional model override for spawned comrades. Use '<provider>/<modelId>'. If you pass only '<modelId>', the provider is inherited from the leader when available.",
+				"Explicit model override. Generic teammates inherit the leader provider for a bare model id; named agent definitions resolve their own model when omitted.",
 		}),
 	),
 	thinking: Type.Optional(TeamsThinkingLevelSchema),
+	agent: Type.Optional(
+		Type.String({
+			description: "Named OMP agent definition for action=member_spawn only. This remains independent from the teammate name.",
+		}),
+	),
 	hookFailureAction: Type.Optional(TeamsHookFailureActionSchema),
 	hookMaxReopensPerTask: Type.Optional(
 		Type.Integer({ minimum: 0, description: "Per-task auto-reopen cap for hooks_policy_set (0 disables auto-reopen)." }),
@@ -194,8 +199,8 @@ export function registerTeamsTool(opts: {
 			"Use team_done to end a team run when all tasks are complete (stops teammates, hides widget).",
 			"Provide a list of tasks with optional assignees; comrades are spawned automatically and assigned round-robin if unspecified.",
 			"Options: contextMode=branch (clone session context), workspaceMode=worktree (git worktree isolation).",
+			"member_spawn also accepts agent='<definition-name>' for a named OMP agent definition; delegate rejects agent selection.",
 			"Optional overrides: model='<provider>/<modelId>' and thinking (off|minimal|low|medium|high|xhigh).",
-			"For governance, the user can run /team delegate on (leader restricted to coordination) or /team spawn <name> plan (worker needs plan approval).",
 		].join(" "),
 		promptSnippet: "Delegate work across teammates, inspect member status, message workers, and manage team lifecycle/tasks.",
 		promptGuidelines: [
@@ -206,6 +211,13 @@ export function registerTeamsTool(opts: {
 
 		async execute(_toolCallId, params: TeamsToolParamsType, signal, _onUpdate, ctx): Promise<AgentToolResult<unknown>> {
 			const action = params.action ?? "delegate";
+			if (params.agent !== undefined && action !== "member_spawn") {
+				return {
+					content: [{ type: "text", text: "agent is supported only for member_spawn; delegate cannot select an agent definition." }],
+					details: { action, agent: params.agent },
+				};
+			}
+
 			const teamId = getTeamId(ctx);
 			const teamDir = getTeamDir(teamId);
 			const taskListId = getTaskListId();
@@ -520,6 +532,7 @@ export function registerTeamsTool(opts: {
 					mode: contextMode,
 					workspaceMode,
 					model: spawnModel,
+					agent: params.agent,
 					thinking: params.thinking,
 					planRequired: params.planRequired === true,
 				});
@@ -535,9 +548,9 @@ export function registerTeamsTool(opts: {
 				const lines: string[] = [
 					`Spawned ${formatMemberDisplayName(style, res.name)} (${res.mode}/${res.workspaceMode})`,
 				];
+				if (res.agent) lines.push(`agent: ${res.agent}`);
 				if (res.model) lines.push(`model: ${res.model}`);
 				if (res.thinking) lines.push(`thinking: ${res.thinking}`);
-				if (res.note) lines.push(`note: ${res.note}`);
 				for (const w of res.warnings) lines.push(`warning: ${w}`);
 				return {
 					content: [{ type: "text", text: lines.join("\n") }],
@@ -547,6 +560,7 @@ export function registerTeamsTool(opts: {
 						name: res.name,
 						mode: res.mode,
 						workspaceMode: res.workspaceMode,
+						agent: res.agent,
 						model: res.model,
 						thinking: res.thinking,
 						warnings: res.warnings,

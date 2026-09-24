@@ -31,6 +31,33 @@ function sleep(ms: number): Promise<void> {
 	return new Promise((r) => setTimeout(r, ms));
 }
 
+const DEFAULT_WORKER_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+const PLAN_MODE_TOOLS = ["read", "grep", "find", "ls"];
+const PROFILE_READY_EVENT = "teams:profile-ready";
+
+type ProfileTools = {
+	names: string[];
+	allowed: Set<string>;
+};
+
+function profileToolsFromEnv(): ProfileTools | null {
+	const raw = process.env.PI_TEAMS_PROFILE_TOOLS;
+	if (raw === undefined) return null;
+
+	let value: unknown;
+	try {
+		value = JSON.parse(raw);
+	} catch {
+		throw new Error("PI_TEAMS_PROFILE_TOOLS must be a JSON array of tool names");
+	}
+
+	if (!Array.isArray(value) || !value.every((tool): tool is string => typeof tool === "string")) {
+		throw new Error("PI_TEAMS_PROFILE_TOOLS must be a JSON array of tool names");
+	}
+
+	return { names: value, allowed: new Set(value) };
+}
+
 function teamDirFromEnv(): {
 	teamId: string;
 	teamDir: string;
@@ -123,6 +150,14 @@ export function runWorker(pi: ExtensionAPI): void {
 
 	const { teamId, teamDir, taskListId, agentName, leadName, styleId, autoClaim } = env;
 
+	const profileTools = profileToolsFromEnv();
+	const requiresProfileReady = process.env.PI_TEAMS_PROFILE_READY === "1";
+	const profileSessionFile = process.env.PI_TEAMS_PROFILE_SESSION_FILE;
+	const isTeamSession = (ctx: ExtensionContext) =>
+		!profileSessionFile || ctx.sessionManager.getSessionFile() === profileSessionFile;
+	let profileReady = !requiresProfileReady;
+	let disposeProfileReady: (() => void) | undefined;
+
 	// Prefer persisted team config style (leader-controlled) over env default.
 	// This keeps manual workers consistent with the current team terminology.
 	let style: TeamsStyle = styleId;
@@ -139,53 +174,68 @@ export function runWorker(pi: ExtensionAPI): void {
 	// Tool result details to match AgentToolResult<TDetails> contract.
 	type TeamMessageToolDetails = { recipient: string; timestamp: string; urgent: boolean };
 
-	pi.registerTool({
-		name: "team_message",
-		label: "Team Message",
-		description: "Send a message to a comrade. Use this to coordinate with peers on related tasks. Set urgent=true to interrupt their active turn (use sparingly — only for time-sensitive coordination).",
-		promptSnippet: "Send a coordination message to another teammate, optionally as an urgent interruption.",
-		promptGuidelines: [
-			"Use this tool for teammate-to-teammate coordination instead of overloading task status fields with freeform messages.",
-			"Set urgent=true only when the recipient must be interrupted before finishing their current turn.",
-		],
-		parameters: TeamMessageToolParamsSchema,
-		async execute(
-			_toolCallId,
-			params: TeamMessageToolParams,
-			_signal,
-			_onUpdate,
-			_ctx,
-		): Promise<AgentToolResult<TeamMessageToolDetails>> {
-			const recipient = sanitizeName(params.recipient);
-			const message = params.message;
-			const isUrgent = params.urgent === true;
-			const ts = new Date().toISOString();
-			// Write to recipient's mailbox in team namespace
-			await writeToMailbox(teamDir, TEAM_MAILBOX_NS, recipient, {
-				from: agentName,
-				text: message,
-				timestamp: ts,
-				...(isUrgent ? { urgent: true } : {}),
-			});
-			// CC leader with peer_dm_sent notification
-			await writeToMailbox(teamDir, TEAM_MAILBOX_NS, leadName, {
-				from: agentName,
-				text: JSON.stringify({
-					type: "peer_dm_sent",
+	if (!profileTools || profileTools.allowed.has("team_message")) {
+		pi.registerTool({
+			name: "team_message",
+			label: "Team Message",
+			description: "Send a message to a comrade. Use this to coordinate with peers on related tasks. Set urgent=true to interrupt their active turn (use sparingly — only for time-sensitive coordination).",
+			promptSnippet: "Send a coordination message to another teammate, optionally as an urgent interruption.",
+			promptGuidelines: [
+				"Use this tool for teammate-to-teammate coordination instead of overloading task status fields with freeform messages.",
+				"Set urgent=true only when the recipient must be interrupted before finishing their current turn.",
+			],
+			parameters: TeamMessageToolParamsSchema,
+			async execute(
+				_toolCallId,
+				params: TeamMessageToolParams,
+				_signal,
+				_onUpdate,
+				ctx,
+			): Promise<AgentToolResult<TeamMessageToolDetails>> {
+				if (!isTeamSession(ctx)) throw new Error("Team messaging is unavailable in task subagents");
+				const recipient = sanitizeName(params.recipient);
+				const message = params.message;
+				const isUrgent = params.urgent === true;
+				const ts = new Date().toISOString();
+				await writeToMailbox(teamDir, TEAM_MAILBOX_NS, recipient, {
 					from: agentName,
-					to: recipient,
-					summary: message.slice(0, 100),
-					urgent: isUrgent,
+					text: message,
 					timestamp: ts,
-				}),
-				timestamp: ts,
-			});
-			return {
-				content: [{ type: "text", text: `${isUrgent ? "Urgent message" : "Message"} sent to ${recipient}` }],
-				details: { recipient, timestamp: ts, urgent: isUrgent },
-			};
-		},
-	});
+					...(isUrgent ? { urgent: true } : {}),
+				});
+				await writeToMailbox(teamDir, TEAM_MAILBOX_NS, leadName, {
+					from: agentName,
+					text: JSON.stringify({
+						type: "peer_dm_sent",
+						from: agentName,
+						to: recipient,
+						summary: message.slice(0, 100),
+						urgent: isUrgent,
+						timestamp: ts,
+					}),
+					timestamp: ts,
+				});
+				return {
+					content: [{ type: "text", text: `${isUrgent ? "Urgent message" : "Message"} sent to ${recipient}` }],
+					details: { recipient, timestamp: ts, urgent: isUrgent },
+				};
+			},
+		});
+	}
+
+	if (profileTools) {
+		pi.on("tool_call", (event, ctx) => {
+			if (!isTeamSession(ctx)) {
+				if (event.toolName === "team_message") {
+					return { block: true, reason: "Team messaging is unavailable in task subagents" };
+				}
+				return;
+			}
+			if (!profileTools.allowed.has(event.toolName)) {
+				return { block: true, reason: `Tool '${event.toolName}' is not enabled for this agent profile` };
+			}
+		});
+	}
 
 	let ctxRef: ExtensionContext | null = null;
 	let isStreaming = false;
@@ -208,6 +258,10 @@ export function runWorker(pi: ExtensionAPI): void {
 	let planRequestId: string | null = null;
 	/** Tools that were active before plan-mode restriction, so we can restore them on approval. */
 	let prePlanTools: string[] | null = null;
+
+	const boundProfileTools = (tools: string[]): string[] =>
+		profileTools ? tools.filter((tool) => profileTools.allowed.has(tool)) : tools;
+	const getBoundActiveTools = (): string[] => boundProfileTools(pi.getActiveTools?.() ?? DEFAULT_WORKER_TOOLS);
 
 	const poll = async () => {
 		while (!pollAbort) {
@@ -318,7 +372,7 @@ export function runWorker(pi: ExtensionAPI): void {
 					// Plan approval/rejection handling
 					const planApproval = isPlanApprovedMessage(m.text);
 					if (planApproval && planRequestId && planApproval.requestId === planRequestId) {
-						pi.setActiveTools(prePlanTools ?? ["read", "bash", "edit", "write", "grep", "find", "ls"]);
+						await pi.setActiveTools(prePlanTools ?? getBoundActiveTools());
 						prePlanTools = null;
 						planApproved = true;
 						planMode = false;
@@ -363,6 +417,7 @@ export function runWorker(pi: ExtensionAPI): void {
 
 	const maybeStartNextWork = async () => {
 		if (!ctxRef) return;
+		if (!profileReady) return;
 		if (shutdownInProgress) return;
 		if (isStreaming) return;
 		if (currentTaskId) return;
@@ -466,16 +521,11 @@ export function runWorker(pi: ExtensionAPI): void {
 		}
 	};
 
-	pi.on("session_start", async (_event, ctx) => {
-		ctxRef = ctx;
-
-		// Restrict tools in plan-required mode (read-only until plan is approved)
-		if (planMode) {
-			prePlanTools = pi.getActiveTools?.() ?? ["read", "bash", "edit", "write", "grep", "find", "ls"];
-			pi.setActiveTools(["read", "grep", "find", "ls"]);
-		}
-
-		// Register ourselves in the shared team config so manual tmux workers are discoverable.
+	let initialWorkStarted = false;
+	const startInitialWork = async () => {
+		if (initialWorkStarted || !ctxRef || shutdownInProgress || pollAbort) return;
+		initialWorkStarted = true;
+		// Profiled workers become visible only after their policy and skills finish loading.
 		try {
 			const cfg = await ensureTeamConfig(teamDir, { teamId, taskListId, leadName, style: styleId });
 			style = cfg.style ?? styleId;
@@ -486,8 +536,8 @@ export function runWorker(pi: ExtensionAPI): void {
 					role: "worker",
 					status: "online",
 					lastSeenAt: now,
-					cwd: ctx.cwd,
-					sessionFile: ctx.sessionManager.getSessionFile(),
+					cwd: ctxRef.cwd,
+					sessionFile: ctxRef.sessionManager.getSessionFile(),
 				});
 			} else {
 				await setMemberStatus(teamDir, agentName, "online", { lastSeenAt: now });
@@ -495,16 +545,41 @@ export function runWorker(pi: ExtensionAPI): void {
 		} catch {
 			// ignore config errors
 		}
-
 		void poll();
 		await maybeStartNextWork();
 		// Claude-style: let the leader know we're idle even if no task was completed yet.
-		if (!isStreaming && !currentTaskId) {
-			await sendIdleNotification();
+		if (!isStreaming && !currentTaskId) await sendIdleNotification();
+	};
+	if (requiresProfileReady) {
+		disposeProfileReady = pi.events.on(PROFILE_READY_EVENT, async () => {
+			profileReady = true;
+			disposeProfileReady?.();
+			disposeProfileReady = undefined;
+			await startInitialWork();
+		});
+	}
+
+	pi.on("session_start", async (_event, ctx) => {
+		if (!isTeamSession(ctx)) return;
+		ctxRef = ctx;
+		process.off("SIGTERM", onSigterm);
+		process.on("SIGTERM", onSigterm);
+
+		if (profileTools) await pi.setActiveTools(profileTools.names);
+
+		if (planMode) {
+			prePlanTools = getBoundActiveTools();
+			await pi.setActiveTools(boundProfileTools(PLAN_MODE_TOOLS));
 		}
+
+		if (profileReady) await startInitialWork();
 	});
 
 	pi.on("session_shutdown", async () => {
+		if (profileSessionFile && !ctxRef) return;
+		process.off("SIGTERM", onSigterm);
+		disposeProfileReady?.();
+		disposeProfileReady = undefined;
 		pollAbort = true;
 		await cleanup("worker shutdown");
 		try {
@@ -516,10 +591,12 @@ export function runWorker(pi: ExtensionAPI): void {
 	});
 
 	pi.on("agent_start", async () => {
+		if (!ctxRef) return;
 		isStreaming = true;
 	});
 
 	pi.on("agent_end", async (event) => {
+		if (!ctxRef) return;
 		isStreaming = false;
 
 		// Plan submission: if in plan mode and not yet approved, send plan to leader for review
@@ -607,7 +684,7 @@ export function runWorker(pi: ExtensionAPI): void {
 	});
 
 	// Best-effort cleanup on SIGTERM (leader kill).
-	process.on("SIGTERM", () => {
+	function onSigterm() {
 		pollAbort = true;
 		void (async () => {
 			await cleanup("SIGTERM");
@@ -618,5 +695,5 @@ export function runWorker(pi: ExtensionAPI): void {
 			}
 			await sendIdleNotification(undefined, undefined, "SIGTERM");
 		})().finally(() => process.exit(0));
-	});
+	}
 }

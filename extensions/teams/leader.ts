@@ -53,6 +53,30 @@ function getTeamsExtensionEntryPath(): string | null {
 	}
 }
 
+function getProfiledWorkerEntryPath(): string | null {
+	try {
+		const dir = path.dirname(fileURLToPath(import.meta.url));
+		const ts = path.join(dir, "profiled-worker.ts");
+		if (fs.existsSync(ts)) return ts;
+		const js = path.join(dir, "profiled-worker.js");
+		if (fs.existsSync(js)) return js;
+		return null;
+	} catch {
+		return null;
+	}
+}
+
+function getProfileState(state: unknown): { model?: string; thinking?: string } {
+	if (typeof state !== "object" || state === null) return {};
+	const stateRecord = state as Record<string, unknown>;
+	const model = stateRecord.model;
+	const modelRecord = typeof model === "object" && model !== null ? (model as Record<string, unknown>) : null;
+	const provider = typeof modelRecord?.provider === "string" ? modelRecord.provider : undefined;
+	const modelId = typeof modelRecord?.id === "string" ? modelRecord.id : undefined;
+	const thinking = typeof stateRecord.thinkingLevel === "string" ? stateRecord.thinkingLevel : undefined;
+	return { model: formatProviderModel(provider, modelId) ?? undefined, thinking };
+}
+
 function shellQuote(v: string): string {
 	return "'" + v.replace(/'/g, `"'"'"'`) + "'";
 }
@@ -525,23 +549,40 @@ export function runLeader(pi: ExtensionAPI): void {
 			return { ok: false, error: `${formatMemberDisplayName(style, name)} already exists (${strings.teamNoun})` };
 		}
 
-		// Spawn-time model / thinking overrides (optional).
-		const thinkingLevel = opts.thinking ?? pi.getThinkingLevel();
+		const agent = opts.agent?.trim();
+		if (opts.agent !== undefined && !agent) return { ok: false, error: "Missing OMP agent definition name" };
 
-		const modelResolution = resolveTeammateModelSelection({
-			modelOverride: opts.model,
-			leaderProvider: ctx.model?.provider,
-			leaderModelId: ctx.model?.id,
-		});
-		if (!modelResolution.ok) return { ok: false, error: modelResolution.error };
-		const { provider: childProvider, modelId: childModelId, warnings: modelWarnings } = modelResolution.value;
-		warnings.push(...modelWarnings);
+		const cli = resolveTeammateCli();
+		const profiledWorker = agent ? getProfiledWorkerEntryPath() : null;
+		if (agent && cli.dialect !== "omp") {
+			return { ok: false, error: "Named OMP agent definitions require the OMP teammate CLI dialect" };
+		}
+		if (agent && !profiledWorker) {
+			return { ok: false, error: "Named OMP agent launcher is unavailable" };
+		}
+
+		const thinkingLevel = agent ? opts.thinking : (opts.thinking ?? pi.getThinkingLevel());
+		let childProvider: string | undefined;
+		let childModelId: string | undefined;
+		if (!agent) {
+			const modelResolution = resolveTeammateModelSelection({
+				modelOverride: opts.model,
+				leaderProvider: ctx.model?.provider,
+				leaderModelId: ctx.model?.id,
+			});
+			if (!modelResolution.ok) return { ok: false, error: modelResolution.error };
+			childProvider = modelResolution.value.provider;
+			childModelId = modelResolution.value.modelId;
+			warnings.push(...modelResolution.value.warnings);
+		}
 
 		const teamId = currentTeamId ?? ctx.sessionManager.getSessionId();
 		const teamDir = getTeamDir(teamId);
 		const teamSessionsDir = getTeamSessionsDir(teamDir);
 		const session = await createSessionForTeammate(ctx, mode, teamSessionsDir);
 		const { sessionFile, note } = session;
+		if (agent && !sessionFile) return { ok: false, error: "Named OMP agent requires a session file" };
+
 		warnings.push(...session.warnings);
 
 		const t = new TeammateRpc(name, sessionFile);
@@ -590,28 +631,33 @@ export function runLeader(pi: ExtensionAPI): void {
 			void setMemberStatus(teamDir, name, "offline", { meta: { exitCode: code ?? undefined } });
 		});
 
-		const builtInToolSet = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
-		const tools = (pi.getActiveTools() ?? []).filter((t) => builtInToolSet.has(t));
-		const cli = resolveTeammateCli();
 		const argsForChild: string[] = [];
-		if (sessionFile) argsForChild.push(...sessionResumeArgs(cli, sessionFile));
-		argsForChild.push("--session-dir", teamSessionsDir);
-		if (tools.length) argsForChild.push("--tools", tools.join(","));
-
-		// Model + thinking for the child process.
-		if (childModelId) {
-			if (childProvider) argsForChild.push("--provider", childProvider);
-			argsForChild.push("--model", childModelId);
-		}
-		argsForChild.push("--thinking", thinkingLevel);
-
-		const teamsEntry = getTeamsExtensionEntryPath();
-		if (teamsEntry) {
-			argsForChild.push("--no-extensions", "-e", teamsEntry);
-		}
-
 		const strings = getTeamsStrings(style);
 		const systemAppend = `You are ${strings.memberTitle.toLowerCase()} '${name}'. You collaborate with the ${strings.leaderTitle.toLowerCase()}. Prefer working from the shared task list.\n${style === "borg" ? `Your designation is ${formatMemberDisplayName(style, name)}.\n` : ""}`;
+
+		if (agent && sessionFile) {
+			argsForChild.push("--agent", agent, "--session-file", sessionFile, "--session-dir", teamSessionsDir);
+			const model = opts.model?.trim();
+			if (model) argsForChild.push("--model", model);
+			if (opts.thinking) argsForChild.push("--thinking", opts.thinking);
+		} else {
+			const builtInToolSet = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+			const tools = (pi.getActiveTools() ?? []).filter((t) => builtInToolSet.has(t));
+			if (sessionFile) argsForChild.push(...sessionResumeArgs(cli, sessionFile));
+			argsForChild.push("--session-dir", teamSessionsDir);
+			if (tools.length) argsForChild.push("--tools", tools.join(","));
+
+			if (childModelId) {
+				if (childProvider) argsForChild.push("--provider", childProvider);
+				argsForChild.push("--model", childModelId);
+			}
+			argsForChild.push("--thinking", thinkingLevel ?? pi.getThinkingLevel());
+
+			const teamsEntry = getTeamsExtensionEntryPath();
+			if (teamsEntry) {
+				argsForChild.push("--no-extensions", "-e", teamsEntry);
+			}
+		}
 		argsForChild.push("--append-system-prompt", systemAppend);
 
 		const autoClaim = (process.env.PI_TEAMS_DEFAULT_AUTO_CLAIM ?? "1") === "1";
@@ -626,7 +672,8 @@ export function runLeader(pi: ExtensionAPI): void {
 
 		try {
 			await t.start({
-				command: cli.command,
+				command: agent ? "bun" : cli.command,
+				...(agent && profiledWorker ? { commandArgs: [profiledWorker] } : {}),
 				cwd: childCwd,
 				env: {
 					PI_TEAMS_WORKER: "1",
@@ -643,6 +690,18 @@ export function runLeader(pi: ExtensionAPI): void {
 		} catch (err) {
 			teammates.delete(name);
 			return { ok: false, error: err instanceof Error ? err.message : String(err) };
+		}
+
+		let effectiveModel = formatProviderModel(childProvider, childModelId) ?? undefined;
+		let effectiveThinking: string | undefined = agent ? undefined : thinkingLevel;
+		if (agent) {
+			try {
+				const state = getProfileState(await t.getState());
+				effectiveModel = state.model;
+				effectiveThinking = state.thinking;
+			} catch {
+				// Profile startup already verified RPC readiness; leave unavailable state unreported.
+			}
 		}
 
 		const sessionName = `pi agent teams - ${strings.memberTitle.toLowerCase()} ${name}`;
@@ -667,7 +726,6 @@ export function runLeader(pi: ExtensionAPI): void {
 		}
 
 		await ensureTeamConfig(teamDir, { teamId, taskListId: taskListId ?? teamId, leadName: "team-lead", style });
-		const childModel = formatProviderModel(childProvider, childModelId);
 		await upsertMember(teamDir, {
 			name,
 			role: "worker",
@@ -677,8 +735,9 @@ export function runLeader(pi: ExtensionAPI): void {
 			meta: {
 				workspaceMode,
 				sessionName,
-				thinkingLevel,
-				...(childModel ? { model: childModel } : {}),
+				...(agent ? { agent } : {}),
+				...(effectiveThinking ? { thinkingLevel: effectiveThinking } : {}),
+				...(effectiveModel ? { model: effectiveModel } : {}),
 			},
 		});
 
@@ -692,8 +751,9 @@ export function runLeader(pi: ExtensionAPI): void {
 			workspaceMode,
 			childCwd,
 			note,
-			model: childModel ?? undefined,
-			thinking: thinkingLevel,
+			agent,
+			model: effectiveModel,
+			thinking: effectiveThinking,
 			warnings,
 		};
 	};

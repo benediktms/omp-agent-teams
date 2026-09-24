@@ -132,6 +132,24 @@ Or let the model drive it with the delegate tool:
 }
 ```
 
+### Named agent profiles
+
+An explicitly spawned teammate can use a named OMP agent definition while retaining its independent team-member name:
+
+```text
+/team spawn reader --agent fresha-explorer
+```
+
+The definition supplies its system prompt, model, thinking level, tools, spawn policy, and autoloaded skills. The member is still named `reader` for task assignment and team messaging. Named profiles apply only to explicit member spawns:
+
+```json
+{ "action": "member_spawn", "name": "reader", "agent": "fresha-explorer" }
+```
+
+`delegate` does not accept an agent profile; spawn the specialist first, then delegate tasks to that member name. A missing, disabled, or invalid profile fails startup rather than falling back to a generic teammate.
+
+Profile `tools` are a model-tool allowlist, not an operating-system sandbox. In particular, a profile that permits `bash` can run normal shell commands: a read-only system prompt or tool selection alone does not make `bash` read-only.
+
 ### Teams tool action reference (agent-run)
 
 | Action | Required fields | Purpose |
@@ -146,7 +164,7 @@ Or let the model drive it with the delegate tool:
 | `message_dm` | `name`, `message` | Send mailbox DM to one teammate. Set `urgent=true` to interrupt their active turn. |
 | `message_broadcast` | `message` | Send mailbox message to all discovered workers. Set `urgent=true` to interrupt active turns. |
 | `message_steer` | `name`, `message` | Send steer instruction to a running RPC teammate. |
-| `member_spawn` | `name` | Spawn one teammate (supports context/workspace/model/thinking/plan options). |
+| `member_spawn` | `name` | Spawn one teammate; optional `agent` selects a named OMP profile (also supports context/workspace/model/thinking/plan options). |
 | `member_status` | optional `name` | Real-time worker status: activity, time in state, stall detection, tool use, tokens, last message. Omit name for all-worker summary. |
 | `member_shutdown` | `name` or `all=true` | Request graceful shutdown via mailbox handshake. |
 | `member_kill` | `name` | Force-stop one RPC teammate and unassign active tasks. |
@@ -162,10 +180,11 @@ Or let the model drive it with the delegate tool:
 Example calls:
 
 ```json
+{ "action": "member_spawn", "name": "reader", "agent": "fresha-explorer" }
 { "action": "task_assign", "taskId": "12", "assignee": "alice" }
 { "action": "task_dep_add", "taskId": "12", "depId": "7" }
 { "action": "message_broadcast", "message": "Sync: finishing this milestone" }
-{ "action": "message_dm", "name": "alice", "message": "Stop using lib X, use Y instead", "urgent": true }
+{ "action": "message_dm", "name": "alice", "message": "Stop using library X, it's broken", "urgent": true }
 { "action": "member_kill", "name": "alice" }
 { "action": "plan_approve", "name": "alice" }
 { "action": "hooks_policy_get" }
@@ -191,7 +210,7 @@ All management commands live under `/team`.
 
 | Command | Description |
 | --- | --- |
-| `/team spawn <name> [fresh\|branch] [shared\|worktree] [plan] [--model <provider>/<modelId>] [--thinking <level>]` | Start a teammate |
+| `/team spawn <name> [fresh\|branch] [shared\|worktree] [plan] [--agent <definition-name>] [--model <provider>/<modelId>] [--thinking <level>]` | Start a teammate; `--agent` uses a named OMP profile. |
 | `/team list` | List teammates and their status |
 | `/team status [name]` | Real-time worker state: stall detection, time in state, activity (omit name for summary) |
 | `/team panel` | Interactive widget panel (same as `/tw`) |
@@ -407,6 +426,16 @@ node scripts/e2e-rpc-test.mjs
 ```
 
 Starts an OMP leader in RPC mode, spawns a teammate, runs a shutdown handshake, and verifies cleanup. It sets `PI_TEAMS_ROOT_DIR` to a temporary directory so nothing touches `~/.omp/agent/teams`.
+
+### Integration: named profiles
+
+```bash
+bun scripts/integration-profiled-spawn-test.mts
+# Run the assigned-task exercise only with a configured provider:
+bun scripts/integration-profiled-spawn-test.mts --provider-smoke
+```
+
+The deterministic run uses a temporary project and project-local OMP profiles. It checks real SDK worker model/thinking/prompt/skill/tool behavior, `exec` alias expansion, unknown/disabled/missing-skill errors, an ordinary teammate, and a branched profiled teammate. `--provider-smoke` additionally assigns a real read task to the profiled worker and requires provider authentication.
 
 ### Integration: hooks remediation loop
 
