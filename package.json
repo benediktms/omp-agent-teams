@@ -1,6 +1,6 @@
 {
-  "name": "@tmustier/pi-agent-teams",
-  "version": "0.5.6",
+  "name": "@benediktms/omp-agent-teams",
+  "version": "0.5.7",
   "description": "Claude Code agent teams style workflow for Oh My Pi.",
   "license": "MIT",
   "author": "Thomas Mustier",
@@ -11,10 +11,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tmustier/pi-agent-teams.git"
+    "url": "git+https://github.com/benediktms/omp-agent-teams.git"
   },
-  "bugs": "https://github.com/tmustier/pi-agent-teams/issues",
-  "homepage": "https://github.com/tmustier/pi-agent-teams",
+  "bugs": "https://github.com/benediktms/omp-agent-teams/issues",
+  "homepage": "https://github.com/benediktms/omp-agent-teams",
   "publishConfig": {
     "access": "public"
   },

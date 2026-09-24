@@ -2,11 +2,15 @@
 
 ## Unreleased
 
+## [0.5.7] - 2026-09-24
+
 ### Added
 - Add Borg naming style with The Queen and batch-sized ordinal adjunct designations.
+- Spawn teammates with named OMP agent definitions, applying their tools, skills, model, and thinking settings.
 
 ### Changed
 - Default RPC teammates to OMP, use OMP's `--resume` session argument, and allow `PI_TEAMS_CLI`/`PI_TEAMS_CLI_DIALECT` overrides for upstream Pi compatibility.
+- Rename the package to `@benediktms/omp-agent-teams` and point package metadata to the fork.
 
 ### Fixed
 - Reject missing or unresponsive teammate executables during startup instead of reporting idle zero-token workers.
