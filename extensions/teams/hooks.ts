@@ -235,7 +235,7 @@ function resolveHookCommand(hooksDir: string, event: TeamsHookEvent): HookComman
 
 			const ext = path.extname(file).toLowerCase();
 			if (ext === ".js" || ext === ".mjs") {
-				return { cmd: "node", args: [file], hookPath: file, display: ["node", file] };
+				return { cmd: "bun", args: [file], hookPath: file, display: ["bun", file] };
 			}
 
 			if (ext === ".sh") {

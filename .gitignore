@@ -5,8 +5,6 @@
 
 # Dependencies
 node_modules/
-package-lock.json
-
 # Local TypeScript config (we don't ship/build TS here)
 /tsconfig.json
 

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+- Use Bun for dependency installation, development scripts, CI, JavaScript hooks, and package verification.
+
 ## [0.5.7] - 2026-09-24
 
 ### Added

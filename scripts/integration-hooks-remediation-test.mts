@@ -11,8 +11,8 @@
  *    - sends remediation nudge mailbox message
  *
  * Usage:
- *   npx tsx scripts/integration-hooks-remediation-test.mts
- *   npx tsx scripts/integration-hooks-remediation-test.mts --timeoutSec 90
+ *   bun scripts/integration-hooks-remediation-test.mts
+ *   bun scripts/integration-hooks-remediation-test.mts --timeoutSec 90
  */
 
 import * as fs from "node:fs";

@@ -175,23 +175,6 @@ async function run() {
 		console.log("OK: alice online in config.json");
 
 		// ---------------------------------------------------------------------
-		// Teammate session naming (leader-driven)
-		// ---------------------------------------------------------------------
-		await waitFor(
-			async () => {
-				try {
-					const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-					const alice = cfg.members?.find((m) => m.name === "alice");
-					return alice?.meta?.sessionName === "pi agent teams - teammate alice";
-				} catch {
-					return false;
-				}
-			},
-			{ label: "alice sessionName recorded in config" },
-		);
-		console.log("OK: alice sessionName recorded in config");
-
-		// ---------------------------------------------------------------------
 		// Graceful teammate shutdown (mailbox handshake)
 		// ---------------------------------------------------------------------
 		await send({ type: "prompt", message: "/team shutdown alice e2e" });

@@ -21,22 +21,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20.x"
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
-        run: npm install
+        run: bun install --frozen-lockfile
 
       - name: Check (typecheck + lint)
-        run: npm run check
+        run: bun run check
 
       - name: Smoke test
-        run: npm run smoke-test
+        run: bun run smoke-test
 
       - name: Package (dry run)
-        run: npm pack --dry-run
+        run: bun pm pack --dry-run
 
   integration-hooks-remediation:
     needs: typecheck-and-smoke
@@ -48,13 +46,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20.x"
-
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
       - name: Install dependencies
-        run: npm install
+        run: bun install --frozen-lockfile
 
       - name: Check pi CLI availability
         id: pi
@@ -69,4 +64,4 @@ jobs:
 
       - name: Integration hooks remediation test
         if: ${{ steps.pi.outputs.available == 'true' }}
-        run: npm run integration-hooks-remediation-test -- --timeoutSec 180
+        run: bun run integration-hooks-remediation-test -- --timeoutSec 180

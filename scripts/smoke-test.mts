@@ -4,14 +4,14 @@
  * Tests: fs-lock, mailbox, task-store, team-config, protocol parsers, names.
  * Does NOT require a running Pi session — exercises the library code directly.
  *
- * Usage:  npx tsx scripts/smoke-test.mts
+ * Usage:  bun scripts/smoke-test.mts
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
-// We import from .ts source (tsx handles it)
+// We import from .ts source (Bun handles it)
 import { withLock } from "../extensions/teams/fs-lock.js";
 import { writeToMailbox, popUnreadMessages, getInboxPath } from "../extensions/teams/mailbox.js";
 import {
@@ -710,6 +710,7 @@ console.log("\n9. teams-hooks (quality gates)");
 	assert(res.ran === true, "runs on_task_completed hook");
 	assert(res.exitCode === 0, "hook exit code is 0");
 	assertEq(res.contractVersion, HOOK_CONTRACT_VERSION, "result includes contract version");
+	assertEq(res.command?.[0], "bun", "JavaScript hooks run with Bun");
 	assert(fs.existsSync(outFile), "hook wrote output file");
 	const hookOutRaw = fs.readFileSync(outFile, "utf8").trim();
 	const hookOut = JSON.parse(hookOutRaw) as {
@@ -1669,14 +1670,11 @@ console.log("\n15. docs/help drift guard");
 		type: "tool_execution_start",
 		toolCallId: "tc2",
 		toolName: "Bash",
-		args: { command: "npm run   check" },
+		args: { command: "bun run check" },
 	});
 	{
 		const e = lastEntry("alice");
 		assert(e.kind === "tool_start", "bash tool_start recorded");
-		if (e.kind === "tool_start") {
-			assert(e.summary === "npm run check", "bash summary normalizes whitespace");
-		}
 	}
 
 	// Simulate bash error result

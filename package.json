@@ -6,6 +6,7 @@
   "author": "Thomas Mustier",
   "private": false,
   "type": "module",
+  "packageManager": "bun@1.3.14",
   "keywords": [
     "pi-package"
   ],
@@ -27,17 +28,17 @@
     ]
   },
   "scripts": {
-    "lint": "eslint 'extensions/**/*.ts' 'scripts/**/*.ts' 'scripts/**/*.mts'",
-    "typecheck": "tsc -p tsconfig.strict.json",
-    "check": "npm run typecheck && npm run lint",
-    "test:rpc": "tsx scripts/teammate-rpc-test.mts",
-    "smoke-test": "tsx scripts/smoke-test.mts",
-    "integration-claim-test": "tsx scripts/integration-claim-test.mts",
-    "integration-spawn-overrides-test": "tsx scripts/integration-spawn-overrides-test.mts",
-    "integration-hooks-remediation-test": "tsx scripts/integration-hooks-remediation-test.mts",
-    "integration-todo-test": "tsx scripts/integration-todo-test.mts",
-    "integration-cleanup-test": "tsx scripts/integration-cleanup-test.mts",
-    "integration-branch-context-test": "tsx scripts/integration-branch-context-test.mts"
+    "lint": "bun run --bun eslint 'extensions/**/*.ts' 'scripts/**/*.ts' 'scripts/**/*.mts'",
+    "typecheck": "bun run --bun tsc -p tsconfig.strict.json",
+    "check": "bun run typecheck && bun run lint",
+    "test:rpc": "bun scripts/teammate-rpc-test.mts",
+    "smoke-test": "bun scripts/smoke-test.mts",
+    "integration-claim-test": "bun scripts/integration-claim-test.mts",
+    "integration-spawn-overrides-test": "bun scripts/integration-spawn-overrides-test.mts",
+    "integration-hooks-remediation-test": "bun scripts/integration-hooks-remediation-test.mts",
+    "integration-todo-test": "bun scripts/integration-todo-test.mts",
+    "integration-cleanup-test": "bun scripts/integration-cleanup-test.mts",
+    "integration-branch-context-test": "bun scripts/integration-branch-context-test.mts"
   },
   "dependencies": {
     "@oh-my-pi/pi-coding-agent": "18.3.0"
@@ -50,7 +51,6 @@
     "@earendil-works/pi-tui": "^0.74.0",
     "@sinclair/typebox": "^0.34.48",
     "eslint": "^9.39.2",
-    "tsx": "^4.20.5",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.54.0"
   },

@@ -150,5 +150,5 @@ Legend: ✅ implemented • 🟡 partial • ❌ missing
 
 - Keep tests hermetic by setting `PI_TEAMS_ROOT_DIR` to a temp directory.
 - Extend:
-  - `scripts/smoke-test.mts` (run via `npm run smoke-test`) for filesystem-only behaviors
+  - `scripts/smoke-test.mts` (run via `bun run smoke-test`) for filesystem-only behaviors
   - `scripts/e2e-rpc-test.mjs` for protocol flows (shutdown handshake, plan approval)
