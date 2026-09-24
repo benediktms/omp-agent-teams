@@ -3,7 +3,7 @@ import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { Type, type Static } from "@sinclair/typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { writeToMailbox } from "./mailbox.js";
-import { pickAgentNames, pickNamesFromPool, sanitizeName } from "./names.js";
+import { pickAgentNames, pickBorgNames, pickNamesFromPool, sanitizeName } from "./names.js";
 import { getTeamDir } from "./paths.js";
 import { TEAM_MAILBOX_NS, taskAssignmentPayload } from "./protocol.js";
 import { ensureTeamConfig, setMemberStatus, updateTeamHooksPolicy } from "./team-config.js";
@@ -1212,12 +1212,14 @@ export function registerTeamsTool(opts: {
 				teammateNames =
 					naming.autoNameStrategy.kind === "agent"
 						? pickAgentNames(count, taken)
-						: pickNamesFromPool({
-							pool: naming.autoNameStrategy.pool,
-							count,
-							taken,
-							fallbackBase: naming.autoNameStrategy.fallbackBase,
-						});
+						: naming.autoNameStrategy.kind === "borg"
+							? pickBorgNames(count, taken)
+							: pickNamesFromPool({
+								pool: naming.autoNameStrategy.pool,
+								count,
+								taken,
+								fallbackBase: naming.autoNameStrategy.fallbackBase,
+							});
 			}
 
 			const spawned: string[] = [];

@@ -611,7 +611,7 @@ export function runLeader(pi: ExtensionAPI): void {
 		}
 
 		const strings = getTeamsStrings(style);
-		const systemAppend = `You are ${strings.memberTitle.toLowerCase()} '${name}'. You collaborate with the ${strings.leaderTitle.toLowerCase()}. Prefer working from the shared task list.\n`;
+		const systemAppend = `You are ${strings.memberTitle.toLowerCase()} '${name}'. You collaborate with the ${strings.leaderTitle.toLowerCase()}. Prefer working from the shared task list.\n${style === "borg" ? `Your designation is ${formatMemberDisplayName(style, name)}.\n` : ""}`;
 		argsForChild.push("--append-system-prompt", systemAppend);
 
 		const autoClaim = (process.env.PI_TEAMS_DEFAULT_AUTO_CLAIM ?? "1") === "1";

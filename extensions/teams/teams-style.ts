@@ -11,7 +11,7 @@ import { getTeamsStylesDir } from "./paths.js";
  */
 export type TeamsStyle = string;
 
-export const TEAMS_STYLES = ["normal", "soviet", "pirate"] as const;
+export const TEAMS_STYLES = ["normal", "soviet", "pirate", "borg"] as const;
 export type BuiltinTeamsStyle = (typeof TEAMS_STYLES)[number];
 
 export type TeamsStrings = {
@@ -38,6 +38,7 @@ export type TeamsStrings = {
 
 export type TeamsAutoNameStrategy =
 	| { kind: "agent" }
+	| { kind: "borg" }
 	| { kind: "pool"; pool: readonly string[]; fallbackBase: string };
 
 export type TeamsNamingRules = {
@@ -131,6 +132,24 @@ function builtinStyle(id: BuiltinTeamsStyle): TeamsStyleDefinition {
 		};
 	}
 
+	if (id === "borg") {
+		return {
+			id,
+			strings: {
+				...builtinStyle("normal").strings,
+				leaderTitle: "The Queen",
+				leaderControlTitle: "The Queen (control)",
+				memberTitle: "Adjunct",
+				memberPrefix: "",
+				teamNoun: "collective",
+			},
+			naming: {
+				requireExplicitSpawnName: false,
+				autoNameStrategy: { kind: "borg" },
+			},
+		};
+	}
+
 	// normal
 	return {
 		id,
@@ -163,6 +182,7 @@ function builtinStyle(id: BuiltinTeamsStyle): TeamsStyleDefinition {
 const BUILTINS: Record<BuiltinTeamsStyle, TeamsStyleDefinition> = {
 	normal: builtinStyle("normal"),
 	soviet: builtinStyle("soviet"),
+	borg: builtinStyle("borg"),
 	pirate: builtinStyle("pirate"),
 };
 
@@ -212,6 +232,7 @@ function coerceAutoNameStrategy(obj: unknown): TeamsAutoNameStrategy | null {
 	if (!isRecord(obj)) return null;
 	const kind = obj.kind;
 	if (kind === "agent") return { kind: "agent" };
+	if (kind === "borg") return { kind: "borg" };
 	if (kind === "pool") {
 		const poolRaw = obj.pool;
 		if (!Array.isArray(poolRaw)) return null;
@@ -316,7 +337,20 @@ export function listAvailableTeamsStyles(): { dir: string; builtins: readonly st
 	return { dir, builtins, customs, all };
 }
 
+const BORG_NUMBERS = [
+	"Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+	"Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen",
+] as const;
+
 export function formatMemberDisplayName(style: TeamsStyle, name: string): string {
+	if (style === "borg") {
+		const match = /^borg-(\d+)-of-(\d+)-(agent\d+)$/.exec(name);
+		if (match) {
+			const [, ordinal = "", total = "", task = ""] = match;
+			return `${BORG_NUMBERS[Number(ordinal)] ?? ordinal} of ${BORG_NUMBERS[Number(total)] ?? total}: ${task} adjunct`;
+		}
+		return `${name} adjunct`;
+	}
 	const s = getTeamsStrings(style);
 	return s.memberPrefix ? `${s.memberPrefix}${name}` : name;
 }

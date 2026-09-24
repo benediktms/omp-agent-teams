@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- Add Borg naming style with The Queen and batch-sized ordinal adjunct designations.
+
 ### Changed
 - Default RPC teammates to OMP, use OMP's `--resume` session argument, and allow `PI_TEAMS_CLI`/`PI_TEAMS_CLI_DIALECT` overrides for upstream Pi compatibility.
 

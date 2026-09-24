@@ -29,6 +29,7 @@ Built-in styles:
 - **normal** (default): "Team leader" + "Teammate <name>" (spawn requires explicit name)
 - **soviet**: "Chairman" + "Comrade <name>" (spawn can auto-pick names)
 - **pirate**: "Captain" + "Matey <name>" (spawn can auto-pick names)
+- **borg**: "The Queen" + "One of Three: agent1 adjunct", "Two of Three: agent2 adjunct", etc. Auto-generated names use the normal style's `agent1`, `agent2` task labels; the denominator is the size of the spawn batch and stays fixed for that batch.
 
 Configure via:
 - env: `PI_TEAMS_STYLE=<name>`
@@ -280,7 +281,7 @@ The `member_status` tool action provides the same information programmatically f
 | `PI_TEAMS_CLI` | Executable used for RPC teammates | `omp` |
 | `PI_TEAMS_CLI_DIALECT` | Session argument dialect (`omp` or `pi`); inferred from the executable name by default | `omp` |
 | `PI_TEAMS_DEFAULT_AUTO_CLAIM` | Whether spawned teammates auto-claim tasks | `1` (on) |
-| `PI_TEAMS_STYLE` | UI style id (built-in: `normal`, `soviet`, `pirate`, or custom) | `normal` |
+| `PI_TEAMS_STYLE` | UI style id (built-in: `normal`, `soviet`, `pirate`, `borg`, or custom) | `normal` |
 | `PI_TEAMS_HOOKS_ENABLED` | Enable leader-side hooks/quality gates | `0` (off) |
 | `PI_TEAMS_HOOKS_DIR` | Hooks directory (absolute or relative to `PI_TEAMS_ROOT_DIR`) | `<teamsRoot>/_hooks` |
 | `PI_TEAMS_HOOK_TIMEOUT_MS` | Hook execution timeout (ms) | `60000` |

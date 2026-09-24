@@ -1,6 +1,6 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { pickAgentNames, pickNamesFromPool } from "./names.js";
+import { pickAgentNames, pickBorgNames, pickNamesFromPool } from "./names.js";
 import type { TeammateRpc } from "./teammate-rpc.js";
 import type { TeamsStyle } from "./teams-style.js";
 import { formatMemberDisplayName, getTeamsNamingRules, getTeamsStrings } from "./teams-style.js";
@@ -120,6 +120,7 @@ export async function handleTeamSpawnCommand(opts: {
 		const taken = new Set(teammates.keys());
 		const picked = (() => {
 			if (naming.autoNameStrategy.kind === "agent") return pickAgentNames(1, taken).at(0);
+			if (naming.autoNameStrategy.kind === "borg") return pickBorgNames(1, taken).at(0);
 			return pickNamesFromPool({
 				pool: naming.autoNameStrategy.pool,
 				count: 1,

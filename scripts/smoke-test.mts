@@ -30,10 +30,10 @@ import {
 	isTaskBlocked,
 } from "../extensions/teams/task-store.js";
 import { ensureTeamConfig, loadTeamConfig, upsertMember, setMemberStatus, updateTeamHooksPolicy } from "../extensions/teams/team-config.js";
-import { sanitizeName } from "../extensions/teams/names.js";
+import { pickBorgNames, sanitizeName } from "../extensions/teams/names.js";
 import { formatProviderModel, isDeprecatedTeammateModelId, resolveTeammateModelSelection } from "../extensions/teams/model-policy.js";
 import { getMemberModel, getMemberThinking, shortModelLabel } from "../extensions/teams/teams-ui-shared.js";
-import { getTeamsNamingRules, getTeamsStrings } from "../extensions/teams/teams-style.js";
+import { formatMemberDisplayName, getTeamsNamingRules, getTeamsStrings } from "../extensions/teams/teams-style.js";
 import {
 	HOOK_CONTRACT_VERSION,
 	buildHookContextPayload,
@@ -115,6 +115,17 @@ assertEq(sanitizeName("Hello World!"), "Hello-World-", "non-alnum → hyphens");
 assertEq(sanitizeName("agent_1"), "agent_1", "underscores kept");
 assertEq(sanitizeName(""), "", "empty stays empty");
 assertEq(sanitizeName("UPPER"), "UPPER", "case preserved");
+const borgNames = pickBorgNames(3, new Set());
+assertEq(borgNames, ["borg-1-of-3-agent1", "borg-2-of-3-agent2", "borg-3-of-3-agent3"], "Borg batch names retain ordinal and batch size");
+assertEq(borgNames.map((name) => formatMemberDisplayName("borg", name)), [
+	"One of Three: agent1 adjunct",
+	"Two of Three: agent2 adjunct",
+	"Three of Three: agent3 adjunct",
+], "Borg display names use natural-language designations");
+assertEq(pickBorgNames(1, new Set(borgNames)), ["borg-4-of-4-agent4"], "later Borg spawn skips taken task labels");
+assertEq(formatMemberDisplayName("borg", pickBorgNames(9, new Set())[8] ?? ""), "Nine of Nine: agent9 adjunct", "nine-member collective uses Nine");
+assertEq(getTeamsStrings("borg").leaderTitle, "The Queen", "Borg leader is The Queen");
+assertEq(getTeamsNamingRules("borg").autoNameStrategy.kind, "borg", "Borg style selects ordinal auto-naming");
 
 // ── 1b. model policy ────────────────────────────────────────────────
 console.log("\n1b. model-policy");

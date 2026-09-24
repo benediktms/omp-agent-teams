@@ -119,3 +119,11 @@ export function pickAgentNames(count: number, taken: ReadonlySet<string>): strin
 	}
 	return picked;
 }
+
+/** ponytail: freeze batch size in mailbox IDs; renumbering existing members would break task and message routing. */
+export function pickBorgNames(count: number, taken: ReadonlySet<string>): string[] {
+	const used = new Set(Array.from(taken, (name) => /^borg-\d+-of-\d+-(agent\d+)$/.exec(name)?.[1] ?? name));
+	const agents = pickAgentNames(count, used);
+	const total = taken.size + count;
+	return agents.map((agent, index) => `borg-${taken.size + index + 1}-of-${total}-${agent}`);
+}
