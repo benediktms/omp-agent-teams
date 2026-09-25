@@ -3,16 +3,16 @@
 ## Prerequisites
 
 - `pi` CLI installed (`pi --version` → `0.52.x+`)
-- `node_modules/` present (run `npm install` or symlink from main repo)
-- `npx tsx` available for running `.mts` test scripts
+- `node_modules/` present (run `bun install` or symlink from main repo)
+- Bun 1.3.14 available for running `.mts` test scripts
 
 ## 1. Automated Unit Smoke Test (no interactive session)
 
-Exercises all core primitives directly via `tsx`:
+Exercises all core primitives directly with Bun:
 
 ```bash
-npx tsx scripts/smoke-test.mts
-# or: npm run smoke-test
+bun scripts/smoke-test.mts
+# or: bun run smoke-test
 ```
 
 **What it tests** (overview):

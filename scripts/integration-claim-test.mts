@@ -6,8 +6,8 @@
  * It exists to validate the end-to-end loop (task-store -> claim -> agent_end -> completeTask).
  *
  * Usage:
- *   npx tsx scripts/integration-claim-test.mts
- *   npx tsx scripts/integration-claim-test.mts --agents 2 --tasks 3 --timeoutSec 90
+ *   bun scripts/integration-claim-test.mts
+ *   bun scripts/integration-claim-test.mts --agents 2 --tasks 3 --timeoutSec 90
  */
 
 import * as os from "node:os";

@@ -7,8 +7,8 @@
  * - Validation errors for invalid thinking and invalid model override formats
  *
  * Usage:
- *   npx tsx scripts/integration-spawn-overrides-test.mts
- *   npx tsx scripts/integration-spawn-overrides-test.mts --timeoutSec 90
+ *   bun scripts/integration-spawn-overrides-test.mts
+ *   bun scripts/integration-spawn-overrides-test.mts --timeoutSec 90
  */
 
 import * as fs from "node:fs";

@@ -162,7 +162,7 @@ Each hook invocation produces a log file in `<teamDir>/hook-logs/` with the stru
   "result": {
     "ran": true,
     "hookPath": "/path/to/on_task_completed.js",
-    "command": ["node", "/path/to/on_task_completed.js"],
+    "command": ["bun", "/path/to/on_task_completed.js"],
     "exitCode": 0,
     "timedOut": false,
     "durationMs": 142,

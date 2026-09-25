@@ -6,7 +6,7 @@
  *
  * Requires: git (creates temporary git repos and worktrees).
  *
- * Usage:  npx tsx scripts/integration-cleanup-test.mts
+ * Usage:  bun scripts/integration-cleanup-test.mts
  */
 
 import * as fs from "node:fs";

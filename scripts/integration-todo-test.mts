@@ -11,8 +11,8 @@
  * - After completion, tails the session .jsonl files for each agent.
  *
  * Usage:
- *   npx tsx scripts/integration-todo-test.mts
- *   npx tsx scripts/integration-todo-test.mts --timeoutSec 900
+ *   bun scripts/integration-todo-test.mts
+ *   bun scripts/integration-todo-test.mts --timeoutSec 900
  */
 
 import * as fs from "node:fs";
@@ -131,8 +131,8 @@ function plannedTasks(): PlannedTask[] {
 				"- Create directories: src/, test/, scripts/",
 				"- Create .gitignore (ignore node_modules, .DS_Store)",
 				"- Create package.json (type: module, private: true) with scripts:",
-				"  - test: node --test",
-				"  - verify: node scripts/verify.mjs",
+				"  - test: bun test",
+				"  - verify: bun scripts/verify.mjs",
 				"  - start: python3 -m http.server 5173",
 				"Acceptance: ls shows src/ test/ scripts/ and package.json has those scripts.",
 			].join("\n"),
@@ -258,11 +258,11 @@ function plannedTasks(): PlannedTask[] {
 		},
 		{
 			key: "test_model",
-			subject: "Todo app: add node:test unit tests for model.js",
+			subject: "Todo app: add Bun unit tests for model.js",
 			description: [
-				"Create test/model.test.js using node:test + node:assert/strict.",
+				"Create test/model.test.js using bun:test + node:assert/strict.",
 				"Cover: addTodo, toggleTodo, removeTodo, clearCompleted, filters (getVisibleTodos).",
-				"Acceptance: `node --test test/model.test.js` passes.",
+				"Acceptance: `bun test test/model.test.js` passes.",
 			].join("\n"),
 			dependsOn: ["model", "scaffold"],
 		},
@@ -273,7 +273,7 @@ function plannedTasks(): PlannedTask[] {
 				"Create test/storage.test.js testing serializeState/deserializeState.",
 				"- roundtrip returns equivalent state",
 				"- invalid input returns null",
-				"Acceptance: `node --test test/storage.test.js` passes.",
+				"Acceptance: `bun test test/storage.test.js` passes.",
 			].join("\n"),
 			dependsOn: ["storage", "scaffold"],
 		},
@@ -284,9 +284,9 @@ function plannedTasks(): PlannedTask[] {
 				"Create scripts/verify.mjs that:",
 				"- checks required files exist (index.html, styles.css, src/main.js, src/model.js, src/storage.js)",
 				"- imports model.js and does a tiny sanity check (add -> toggle)",
-				"- runs `node --test` as a subprocess (or via spawnSync) and fails if tests fail",
+				"- runs `bun test` as a subprocess (or via spawnSync) and fails if tests fail",
 				"- prints exactly: verify: ok",
-				"Acceptance: `node scripts/verify.mjs` prints 'verify: ok' and exits 0.",
+				"Acceptance: `bun scripts/verify.mjs` prints 'verify: ok' and exits 0.",
 			].join("\n"),
 			dependsOn: ["test_model", "test_storage", "persistence", "html", "css"],
 		},
@@ -298,7 +298,7 @@ function plannedTasks(): PlannedTask[] {
 				"- what the app does",
 				"- how to run locally (python http.server)",
 				"- how to run tests + verify",
-				"Acceptance: README.md exists and mentions `npm test` and `npm run verify`.",
+				"Acceptance: README.md exists and mentions `bun test` and `bun run verify`.",
 			].join("\n"),
 			dependsOn: ["verify_script"],
 		},
@@ -307,8 +307,8 @@ function plannedTasks(): PlannedTask[] {
 			subject: "Todo app: final QA run (tests + verify)",
 			description: [
 				"Run the final checks and fix any issues:",
-				"- npm test",
-				"- npm run verify",
+				"- bun test",
+				"- bun run verify",
 				"If anything fails, fix files until both pass.",
 				"Acceptance: paste the final two command outputs (or at least their last lines) showing success.",
 			].join("\n"),
@@ -373,7 +373,7 @@ function printTaskSummary(tasks: TeamTask[]): void {
 }
 
 function runWorkspaceVerify(workspaceDir: string): { ok: boolean; output: string } {
-	const res = spawnSync("npm", ["run", "-s", "verify"], {
+	const res = spawnSync("bun", ["run", "verify"], {
 		cwd: workspaceDir,
 		encoding: "utf8",
 		timeout: 120_000,
@@ -497,7 +497,7 @@ try {
 
 			const verify = runWorkspaceVerify(workspaceDir);
 			if (!verify.ok) {
-				console.error("FAIL: workspace verification failed (npm run verify)");
+				console.error("FAIL: workspace verification failed (bun run verify)");
 				console.error(verify.output);
 				process.exitCode = 1;
 			} else {

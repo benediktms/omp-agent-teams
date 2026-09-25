@@ -402,19 +402,25 @@ export PI_TEAMS_HOOKS_CREATE_TASK_ON_FAILURE=1
 
 ## Development
 
+Install dependencies:
+
+```bash
+bun install
+```
+
 ### Quality gate
 
 ```bash
-npm run check
+bun run check
 ```
 
-Runs strict TypeScript typechecking (`npm run typecheck`) and ESLint (`npm run lint`).
+Runs strict TypeScript typechecking (`bun run typecheck`) and ESLint (`bun run lint`).
 
 ### Smoke test (no API keys)
 
 ```bash
-npm run smoke-test
-# or: npx tsx scripts/smoke-test.mts
+bun run smoke-test
+# or: bun scripts/smoke-test.mts
 ```
 
 Filesystem-level smoke test of the task store, mailbox, team config, and protocol parsers.
@@ -422,7 +428,7 @@ Filesystem-level smoke test of the task store, mailbox, team config, and protoco
 ### E2E RPC test (spawns OMP + one teammate)
 
 ```bash
-node scripts/e2e-rpc-test.mjs
+bun scripts/e2e-rpc-test.mjs
 ```
 
 Starts an OMP leader in RPC mode, spawns a teammate, runs a shutdown handshake, and verifies cleanup. It sets `PI_TEAMS_ROOT_DIR` to a temporary directory so nothing touches `~/.omp/agent/teams`.
@@ -440,7 +446,7 @@ The deterministic run uses a temporary project and project-local OMP profiles. I
 ### Integration: hooks remediation loop
 
 ```bash
-npm run integration-hooks-remediation-test
+bun run integration-hooks-remediation-test
 ```
 
 Deterministic leader-side integration flow that verifies failed `on_task_completed` hook handling end-to-end:
@@ -452,7 +458,7 @@ Deterministic leader-side integration flow that verifies failed `on_task_complet
 ### Integration: cleanup and garbage collection
 
 ```bash
-npm run integration-cleanup-test
+bun run integration-cleanup-test
 ```
 
 Tests worktree/branch cleanup lifecycle, full team directory removal, GC age/activity filtering, and filesystem fallback when no git context is available.

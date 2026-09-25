@@ -12,3 +12,7 @@ This project is **agent-driven**, not user-operated.
 - UI panels and slash commands are primarily for observability/debugging and emergency override.
 - Quality-gate failures should be handled by agent policy (warn/followup/reopen/reopen_followup), not by asking the user to manually clear state.
 - Human-in-the-loop steps should happen only when explicitly required by policy or requested by the user.
+
+## Pull requests
+
+This repository is a fork of `tmustier/pi-agent-teams`. Open pull requests against `benediktms/omp-agent-teams`, not upstream, unless explicitly asked otherwise. Sync upstream changes into this fork separately when needed.

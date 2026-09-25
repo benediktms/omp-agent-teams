@@ -20,7 +20,7 @@ npm-debug.log*
 
 # Lockfiles
 package-lock.json
-
+bun.lock
 # Local TypeScript config
 /tsconfig.json
 

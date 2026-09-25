@@ -12,8 +12,8 @@
  * - Deliver an assigned task and verify the worker starts and completes it
  *
  * Usage:
- *   npx tsx scripts/integration-branch-context-test.mts
- *   npx tsx scripts/integration-branch-context-test.mts --timeoutSec 120
+ *   bun scripts/integration-branch-context-test.mts
+ *   bun scripts/integration-branch-context-test.mts --timeoutSec 120
  */
 
 import * as fs from "node:fs";
